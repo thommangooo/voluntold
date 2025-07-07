@@ -1,8 +1,9 @@
 'use client'
 
 import Header from '../../components/Header'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../../lib/supabase'
+
 
 interface Member {
   id: string
@@ -38,36 +39,35 @@ export default function TenantAdminPage() {
     loadTenantInfo()
   }, [])
 
-  const loadTenantInfo = async () => {
-    try {
-      // Get current user
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.user) return
+const loadTenantInfo = useCallback(async () => {
+  try {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.user) return
 
-      // Get user's tenant info
-      const { data: profile, error: profileError } = await supabase
-        .from('user_profiles')
-        .select(`
-          tenant_id,
-          tenants (
-            id,
-            name,
-            slug
-          )
-        `)
-        .eq('id', session.user.id)
+    const { data: profile, error: profileError } = await supabase
+      .from('user_profiles')
+      .select('tenant_id')
+      .eq('id', session.user.id)
+      .single()
+
+    if (profileError) throw profileError
+    
+    if (profile?.tenant_id) {
+      const { data: tenant, error: tenantError } = await supabase
+        .from('tenants')
+        .select('id, name, slug')
+        .eq('id', profile.tenant_id)
         .single()
 
-      if (profileError) throw profileError
+      if (tenantError) throw tenantError
       
-      if (profile?.tenants) {
-        setTenantInfo(profile.tenants as TenantInfo)
-        loadMembers(profile.tenant_id)
-      }
-    } catch (error: any) {
-      setMessage(`Error loading tenant info: ${error.message}`)
+      setTenantInfo(tenant)
+      loadMembers(profile.tenant_id)
     }
+  } catch (error) {
+    setMessage(`Error loading tenant info: ${(error as Error).message}`)
   }
+}, [])
 
   const loadMembers = async (tenantId: string) => {
     try {
