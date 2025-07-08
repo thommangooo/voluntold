@@ -26,6 +26,13 @@ interface Opportunity {
   skills_required: string[]
   location: string
   created_at: string
+  signup_count?: number
+  signups?: Array<{
+    id: string
+    member_name: string
+    member_email: string
+    signed_up_at: string
+  }>
 }
 
 interface TenantInfo {
@@ -48,6 +55,16 @@ export default function ProjectDetailPage() {
   const [selectedOpportunities, setSelectedOpportunities] = useState<string[]>([])
   const [emailLoading, setEmailLoading] = useState(false)
   const [showCreateForm, setShowCreateForm] = useState(false)
+
+  const [editingOpportunity, setEditingOpportunity] = useState<Opportunity | null>(null)
+  const [addingSignup, setAddingSignup] = useState<Opportunity | null>(null)
+  const [members, setMembers] = useState<Array<{id: string, first_name: string, last_name: string, email: string}>>([])
+  const [manualSignup, setManualSignup] = useState({
+    memberType: 'existing', // 'existing' or 'custom'
+    selectedMember: '',
+    customName: '',
+    customEmail: ''
+  })
 
   // New opportunity form
   const [newOpportunity, setNewOpportunity] = useState({
@@ -121,20 +138,73 @@ export default function ProjectDetailPage() {
   }, [loadProjectData])
 
   const loadOpportunities = async (projectId: string, tenantId: string) => {
-    try {
-            const { data, error } = await supabase
-            .from('opportunities')
-            .select('*')
-            .eq('project_id', projectId)
-            .eq('tenant_id', tenantId)
-            .order('date_scheduled', { ascending: true })
+  try {
+    // First get the opportunities
+    const { data: opportunities, error: oppError } = await supabase
+      .from('opportunities')
+      .select('*')
+      .eq('project_id', projectId)
+      .eq('tenant_id', tenantId)
+      .order('date_scheduled', { ascending: true })
 
-            if (error) throw error
-            setOpportunities(data || [])
-        } catch (error) {
-            setMessage(`Error loading opportunities: ${(error as Error).message}`)
-        }
+    if (oppError) throw oppError
+
+    if (!opportunities) {
+      setOpportunities([])
+      return
     }
+
+    // Then get signup details for each opportunity
+    const opportunitiesWithSignups = await Promise.all(
+      opportunities.map(async (opp) => {
+        const { data: signups, error: signupsError } = await supabase
+          .from('signups')
+          .select('id, member_name, member_email, signed_up_at')
+          .eq('opportunity_id', opp.id)
+          .eq('status', 'confirmed')
+          .order('signed_up_at', { ascending: true })
+
+        if (signupsError) {
+          console.error('Error loading signups for opportunity:', opp.id, signupsError)
+        }
+
+        return {
+          ...opp,
+          signups: signups || [],
+          signup_count: signups?.length || 0
+        }
+      })
+    )
+
+    setOpportunities(opportunitiesWithSignups)
+  } catch (error) {
+    setMessage(`Error loading opportunities: ${(error as Error).message}`)
+  }
+}
+  const loadMembers = useCallback(async () => {
+  if (!tenantInfo) return
+  
+  try {
+    const { data, error } = await supabase
+      .from('user_profiles')
+      .select('id, first_name, last_name, email')
+      .eq('tenant_id', tenantInfo.id)
+      .eq('role', 'member')
+      .order('first_name')
+
+    if (error) throw error
+    setMembers(data || [])
+  } catch (error) {
+    console.error('Error loading members:', error)
+  }
+}, [tenantInfo])
+
+useEffect(() => {
+  if (tenantInfo) {
+    loadMembers()
+  }
+}, [tenantInfo, loadMembers])
+
 
   const createOpportunity = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -204,7 +274,106 @@ export default function ProjectDetailPage() {
     )
   }
 
+const updateOpportunity = async (updatedData: any) => {
+  if (!editingOpportunity || !tenantInfo) return
 
+  setLoading(true)
+  setMessage('')
+
+  try {
+    const { error } = await supabase
+      .from('opportunities')
+      .update({
+        title: updatedData.title,
+        description: updatedData.description,
+        date_scheduled: updatedData.date || null,
+        time_start: updatedData.time || null,
+        duration_hours: updatedData.duration ? parseFloat(updatedData.duration) : null,
+        volunteers_needed: updatedData.volunteersNeeded,
+        skills_required: updatedData.skills.split(',').map((s: string) => s.trim()).filter((s: string) => s.length > 0),
+        location: updatedData.location
+      })
+      .eq('id', editingOpportunity.id)
+
+    if (error) throw error
+
+    setMessage('Opportunity updated successfully!')
+    setEditingOpportunity(null)
+    loadOpportunities(project!.id, tenantInfo.id)
+  } catch (error) {
+    setMessage(`Error: ${(error as Error).message}`)
+  } finally {
+    setLoading(false)
+  }
+}
+
+const addManualSignup = async () => {
+  if (!addingSignup || !tenantInfo) return
+
+  setLoading(true)
+  setMessage('')
+
+  try {
+    let memberName = ''
+    let memberEmail = ''
+
+    if (manualSignup.memberType === 'existing') {
+      const selectedMember = members.find(m => m.id === manualSignup.selectedMember)
+      if (!selectedMember) {
+        throw new Error('Please select a member')
+      }
+      memberName = `${selectedMember.first_name} ${selectedMember.last_name}`
+      memberEmail = selectedMember.email
+    } else {
+      if (!manualSignup.customName || !manualSignup.customEmail) {
+        throw new Error('Please enter name and email for custom signup')
+      }
+      memberName = manualSignup.customName
+      memberEmail = manualSignup.customEmail
+    }
+
+    // Check if already signed up
+    const { data: existingSignup } = await supabase
+      .from('signups')
+      .select('id')
+      .eq('opportunity_id', addingSignup.id)
+      .eq('member_email', memberEmail)
+      .eq('status', 'confirmed')
+      .single()
+
+    if (existingSignup) {
+      throw new Error('This person is already signed up for this opportunity')
+    }
+
+    // Add the signup
+    const { error } = await supabase
+      .from('signups')
+      .insert({
+        opportunity_id: addingSignup.id,
+        tenant_id: tenantInfo.id,
+        member_email: memberEmail,
+        member_name: memberName,
+        signup_token: 'manual-' + crypto.randomUUID(),
+        status: 'confirmed'
+      })
+
+    if (error) throw error
+
+    setMessage(`Added ${memberName} to the opportunity!`)
+    setAddingSignup(null)
+    setManualSignup({
+      memberType: 'existing',
+      selectedMember: '',
+      customName: '',
+      customEmail: ''
+    })
+    loadOpportunities(project!.id, tenantInfo.id)
+  } catch (error) {
+    setMessage(`Error: ${(error as Error).message}`)
+  } finally {
+    setLoading(false)
+  }
+}
 
   const toggleOpportunitySelection = (opportunityId: string) => {
   setSelectedOpportunities(prev => 
@@ -255,6 +424,8 @@ const sendEmailBroadcast = async () => {
     setEmailLoading(false)
   }
 }
+
+
 
   return (
     <>
@@ -452,54 +623,362 @@ const sendEmailBroadcast = async () => {
     <div className="p-6">
       <div className="space-y-4">
         {opportunities.map((opportunity) => (
-          <div key={opportunity.id} className="border rounded-lg p-4 hover:shadow-sm transition-shadow">
-            <div className="flex items-start space-x-3">
-              <input
-                type="checkbox"
-                checked={selectedOpportunities.includes(opportunity.id)}
-                onChange={() => toggleOpportunitySelection(opportunity.id)}
-                className="mt-1 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-              />
-              
-              <div className="flex-1">
-                <div className="flex justify-between items-start mb-3">
-                  <div>
-                    <h4 className="font-semibold text-lg text-gray-900">{opportunity.title}</h4>
-                    {opportunity.description && (
-                      <p className="text-gray-600 mt-1">{opportunity.description}</p>
-                    )}
-                  </div>
-                  <div className="text-right text-sm text-gray-500">
-                    <div>Needs {opportunity.volunteers_needed} volunteer{opportunity.volunteers_needed !== 1 ? 's' : ''}</div>
-                    <div className="mt-1">0 signed up</div>
+        <div key={opportunity.id} className="border rounded-lg p-4 hover:shadow-sm transition-shadow">
+          <div className="flex items-start space-x-3">
+            <input
+              type="checkbox"
+              checked={selectedOpportunities.includes(opportunity.id)}
+              onChange={() => toggleOpportunitySelection(opportunity.id)}
+              className="mt-1 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+            />
+            
+            <div className="flex-1">
+              <div className="flex justify-between items-start mb-3">
+                <div>
+                  <h4 className="font-semibold text-lg text-gray-900">{opportunity.title}</h4>
+                  {opportunity.description && (
+                    <p className="text-gray-600 mt-1">{opportunity.description}</p>
+                  )}
+                </div>
+                <div className="text-right text-sm text-gray-500">
+                  <div>Needs {opportunity.volunteers_needed} volunteer{opportunity.volunteers_needed !== 1 ? 's' : ''}</div>
+                  <div className="mt-1">
+                    <span className={`font-medium ${
+                      (opportunity.signup_count || 0) >= opportunity.volunteers_needed 
+                        ? 'text-green-600' 
+                        : 'text-blue-600'
+                    }`}>
+                      {opportunity.signup_count || 0} signed up
+                    </span>
                   </div>
                 </div>
+              </div>
 
-                {/* Rest of your existing opportunity display code stays the same */}
-                <div className="flex flex-wrap gap-4 text-sm text-gray-600">
-                  {/* Your existing date/time/location/skills display */}
+              <div className="flex flex-wrap gap-4 text-sm text-gray-600 mb-4">
+                {(opportunity.date_scheduled || opportunity.time_start) && (
+                  <div className="flex items-center">
+                    <span className="font-medium">📅</span>
+                    <span className="ml-1">
+                      {opportunity.date_scheduled && new Date(opportunity.date_scheduled).toLocaleDateString()}
+                      {opportunity.date_scheduled && opportunity.time_start && ' at '}
+                      {opportunity.time_start && new Date(`2000-01-01T${opportunity.time_start}`).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                      {opportunity.duration_hours && ` (${opportunity.duration_hours}h)`}
+                    </span>
+                  </div>
+                )}
+                
+                {opportunity.location && (
+                  <div className="flex items-center">
+                    <span className="font-medium">📍</span>
+                    <span className="ml-1">{opportunity.location}</span>
+                  </div>
+                )}
+                
+                {opportunity.skills_required.length > 0 && (
+                  <div className="flex items-center">
+                    <span className="font-medium">🔧</span>
+                    <span className="ml-1">{opportunity.skills_required.join(', ')}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Signups Section */}
+{opportunity.signups && opportunity.signups.length > 0 ? (
+  <div className="mt-4 p-3 bg-gray-50 rounded-lg">
+    <div className="flex justify-between items-center mb-2">
+      <h5 className="font-medium text-gray-900">Volunteers Signed Up:</h5>
+      <button
+        onClick={() => setAddingSignup(opportunity)}
+        className="text-blue-600 hover:text-blue-800 text-sm font-medium cursor-pointer"
+      >
+        + Add
+      </button>
+    </div>
+    <div className="space-y-1">
+      {opportunity.signups.map((signup) => (
+                      <div key={signup.id} className="flex justify-between items-center text-sm">
+                        <span className="text-gray-900">
+                          {signup.member_name}
+                        </span>
+                        <span className="text-gray-500">
+                          {new Date(signup.signed_up_at).toLocaleDateString()}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-
-                <div className="mt-3 flex justify-between items-center">
-                  <span className="text-xs text-gray-500">
-                    Created: {new Date(opportunity.created_at).toLocaleDateString()}
-                  </span>
-                  <div className="space-x-2">
-                    <button className="text-blue-600 hover:text-blue-800 text-sm font-medium">
-                      View Signups
-                    </button>
-                    <button className="text-gray-600 hover:text-gray-800 text-sm font-medium">
-                      Edit
+              ) : (
+                <div className="mt-4 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
+                  <div className="flex justify-between items-center">
+                    <p className="text-sm text-yellow-800">
+                      No volunteers signed up yet
+                    </p>
+                    <button
+                      onClick={() => setAddingSignup(opportunity)}
+                      className="text-blue-600 hover:text-blue-800 text-sm font-medium cursor-pointer"
+                    >
+                      + Add First Volunteer
                     </button>
                   </div>
+                </div>
+              )}
+
+              <div className="mt-4 flex justify-between items-center">
+                <span className="text-xs text-gray-500">
+                  Created: {new Date(opportunity.created_at).toLocaleDateString()}
+                </span>
+                <div className="space-x-2">
+                  <button 
+                    onClick={() => setEditingOpportunity(opportunity)}
+                    className="text-blue-600 hover:text-blue-800 text-sm font-medium cursor-pointer"
+                  >
+                    Edit
+                  </button>
                 </div>
               </div>
             </div>
           </div>
-        ))}
+        </div>
+      ))}
       </div>
     </div>
   )}
+
+  {/* Edit Opportunity Modal */}
+{editingOpportunity && (
+  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-screen overflow-y-auto">
+      <h3 className="text-lg font-semibold mb-4">Edit Opportunity</h3>
+      
+      <form onSubmit={(e) => {
+        e.preventDefault()
+        const formData = new FormData(e.target as HTMLFormElement)
+        updateOpportunity({
+          title: formData.get('title'),
+          description: formData.get('description'),
+          date: formData.get('date'),
+          time: formData.get('time'),
+          duration: formData.get('duration'),
+          volunteersNeeded: parseInt(formData.get('volunteersNeeded') as string),
+          skills: formData.get('skills'),
+          location: formData.get('location')
+        })
+      }} className="space-y-4">
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Title *</label>
+            <input
+              type="text"
+              name="title"
+              defaultValue={editingOpportunity.title}
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+              required
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Volunteers Needed</label>
+            <input
+              type="number"
+              name="volunteersNeeded"
+              min="1"
+              defaultValue={editingOpportunity.volunteers_needed}
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Date</label>
+            <input
+              type="date"
+              name="date"
+              defaultValue={editingOpportunity.date_scheduled || ''}
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Time</label>
+            <input
+              type="time"
+              name="time"
+              defaultValue={editingOpportunity.time_start || ''}
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Duration (hours)</label>
+            <input
+              type="number"
+              name="duration"
+              step="0.5"
+              min="0"
+              defaultValue={editingOpportunity.duration_hours || ''}
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Location</label>
+            <input
+              type="text"
+              name="location"
+              defaultValue={editingOpportunity.location || ''}
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+            />
+          </div>
+        </div>
+        
+        <div>
+          <label className="block text-sm font-medium text-gray-700">Description</label>
+          <textarea
+            name="description"
+            rows={3}
+            defaultValue={editingOpportunity.description || ''}
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+          />
+        </div>
+        
+        <div>
+          <label className="block text-sm font-medium text-gray-700">Skills Required</label>
+          <input
+            type="text"
+            name="skills"
+            defaultValue={editingOpportunity.skills_required?.join(', ') || ''}
+            placeholder="Separate with commas"
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+          />
+        </div>
+        
+        <div className="flex justify-end space-x-3">
+          <button
+            type="button"
+            onClick={() => setEditingOpportunity(null)}
+            className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={loading}
+            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+          >
+            {loading ? 'Saving...' : 'Save Changes'}
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+)}
+
+{/* Add Manual Signup Modal */}
+{addingSignup && (
+  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div className="bg-white rounded-lg p-6 w-full max-w-md">
+      <h3 className="text-lg font-semibold mb-4">Add Volunteer</h3>
+      <p className="text-sm text-gray-600 mb-4">
+        Adding to: <strong>{addingSignup.title}</strong>
+      </p>
+      
+      <div className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Volunteer Type</label>
+          <div className="space-y-2">
+            <label className="flex items-center">
+              <input
+                type="radio"
+                name="memberType"
+                value="existing"
+                checked={manualSignup.memberType === 'existing'}
+                onChange={(e) => setManualSignup({...manualSignup, memberType: e.target.value as 'existing' | 'custom'})}
+                className="mr-2"
+              />
+              Existing Member
+            </label>
+            <label className="flex items-center">
+              <input
+                type="radio"
+                name="memberType"
+                value="custom"
+                checked={manualSignup.memberType === 'custom'}
+                onChange={(e) => setManualSignup({...manualSignup, memberType: e.target.value as 'existing' | 'custom'})}
+                className="mr-2"
+              />
+              Non-Member/Guest
+            </label>
+          </div>
+        </div>
+        
+        {manualSignup.memberType === 'existing' ? (
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Select Member</label>
+            <select
+              value={manualSignup.selectedMember}
+              onChange={(e) => setManualSignup({...manualSignup, selectedMember: e.target.value})}
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+            >
+              <option value="">Choose a member...</option>
+              {members.map((member) => (
+                <option key={member.id} value={member.id}>
+                  {member.first_name} {member.last_name} ({member.email})
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : (
+          <>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Name</label>
+              <input
+                type="text"
+                value={manualSignup.customName}
+                onChange={(e) => setManualSignup({...manualSignup, customName: e.target.value})}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                placeholder="Enter full name"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Email</label>
+              <input
+                type="email"
+                value={manualSignup.customEmail}
+                onChange={(e) => setManualSignup({...manualSignup, customEmail: e.target.value})}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                placeholder="Enter email address"
+              />
+            </div>
+          </>
+        )}
+      </div>
+      
+      <div className="flex justify-end space-x-3 mt-6">
+        <button
+          onClick={() => {
+            setAddingSignup(null)
+            setManualSignup({
+              memberType: 'existing',
+              selectedMember: '',
+              customName: '',
+              customEmail: ''
+            })
+          }}
+          className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={addManualSignup}
+          disabled={loading}
+          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+        >
+          {loading ? 'Adding...' : 'Add Volunteer'}
+        </button>
+      </div>
+    </div>
+  </div>
+)}
 </div>
 
         {message && (
