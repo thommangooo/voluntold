@@ -65,32 +65,34 @@ export default function TenantDashboard() {
         return
       }
 
-      // Get user's profile and tenant info
+      // Get user's profile first
       const { data: profile, error: profileError } = await supabase
         .from('user_profiles')
-        .select(`
-          *,
-          tenants (
-            id,
-            name,
-            owner_id
-          )
-        `)
+        .select('*')
         .eq('id', session.user.id)
         .single()
 
       if (profileError) throw profileError
 
-      if (!profile?.tenants) {
+      if (!profile?.tenant_id) {
         router.push('/setup-tenant')
         return
       }
 
-      setTenantInfo(profile.tenants)
+      // Then get the tenant info separately
+      const { data: tenant, error: tenantError } = await supabase
+        .from('tenants')
+        .select('id, name, owner_id')
+        .eq('id', profile.tenant_id)
+        .single()
+
+      if (tenantError) throw tenantError
+
+      setTenantInfo(tenant)
       
       // Load projects and members
-      await loadProjects(profile.tenants.id)
-      await loadMembers(profile.tenants.id)
+      await loadProjects(tenant.id)
+      await loadMembers(tenant.id)
 
     } catch (error) {
       setMessage(`Error: ${(error as Error).message}`)
