@@ -16,6 +16,15 @@ interface Project {
   name: string
   description: string
   created_at: string
+  opportunities?: OpportunityWithStats[]  // Add this line
+}
+
+interface OpportunityWithStats {
+  id: string
+  title: string
+  volunteers_needed: number
+  filled_count: number
+  open_positions: number
 }
 
 interface Member {
@@ -102,20 +111,65 @@ export default function TenantDashboard() {
     }
   }, [router])
 
-  const loadProjects = async (tenantId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from('projects')
-        .select('*')
-        .eq('tenant_id', tenantId)
-        .order('created_at', { ascending: false })
+  // Enhanced loadProjects function - replace your existing one
+const loadProjects = async (tenantId: string) => {
+  try {
+    // First get all projects
+    const { data: projects, error: projectError } = await supabase
+      .from('projects')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .order('created_at', { ascending: false })
 
-      if (error) throw error
-      setProjects(data || [])
-    } catch (error) {
-      setMessage(`Error loading projects: ${(error as Error).message}`)
-    }
+    if (projectError) throw projectError
+
+    // Then get opportunities with signup counts for each project
+    const projectsWithOpportunities = await Promise.all(
+      (projects || []).map(async (project) => {
+        // Get opportunities for this project
+        const { data: opportunities, error: oppError } = await supabase
+          .from('opportunities')
+          .select('id, title, volunteers_needed')
+          .eq('project_id', project.id)
+          .order('date_scheduled', { ascending: true })
+
+        if (oppError) throw oppError
+
+        // Get signup counts for each opportunity
+        const opportunitiesWithStats = await Promise.all(
+          (opportunities || []).map(async (opportunity) => {
+            const { count, error: countError } = await supabase
+              .from('signups')
+              .select('*', { count: 'exact', head: true })
+              .eq('opportunity_id', opportunity.id)
+              .eq('status', 'confirmed')
+
+            if (countError) throw countError
+
+            const filled_count = count || 0
+            const volunteers_needed = opportunity.volunteers_needed || 1
+            const open_positions = Math.max(0, volunteers_needed - filled_count)
+
+            return {
+              ...opportunity,
+              filled_count,
+              open_positions
+            }
+          })
+        )
+
+        return {
+          ...project,
+          opportunities: opportunitiesWithStats
+        }
+      })
+    )
+
+    setProjects(projectsWithOpportunities)
+  } catch (error) {
+    setMessage(`Error loading projects: ${(error as Error).message}`)
   }
+}
 
   const loadMembers = async (tenantId: string) => {
     try {
@@ -366,24 +420,64 @@ console.log('Members array:', members, 'Length:', members.length)
               {projects.length === 0 ? (
                 <p className="text-gray-500 text-center py-8">No projects yet. Create your first project to get started!</p>
               ) : (
-                <div className="space-y-4">
-                  {projects.map((project) => (
-                    <div key={project.id} className="border rounded-lg p-4 hover:shadow-sm transition-shadow">
-                      <h3 className="font-semibold text-lg mb-2">{project.name}</h3>
-                      {project.description && (
-                        <p className="text-gray-600 mb-3">{project.description}</p>
-                      )}
-                      <div className="flex justify-between items-center">
-                        <button
-                          onClick={() => router.push(`/tenant/projects/${project.id}`)}
-                          className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
-                        >
-                          View Details →
-                        </button>
-                      </div>
+                // Updated project card JSX - replace your existing project card section
+<div className="space-y-4">
+  {projects.map((project) => (
+    <div key={project.id} className="border rounded-lg p-4 hover:shadow-sm transition-shadow">
+      <h3 className="font-semibold text-lg mb-2">{project.name}</h3>
+      {project.description && (
+        <p className="text-gray-600 mb-3">{project.description}</p>
+      )}
+      
+      {/* Opportunities List */}
+      {project.opportunities && project.opportunities.length > 0 ? (
+        <div className="mb-4">
+          <h4 className="text-sm font-medium text-gray-700 mb-2">Volunteer Opportunities:</h4>
+          <div className="space-y-2">
+            {project.opportunities.map((opportunity) => (
+              <div key={opportunity.id} className="bg-gray-50 rounded p-3">
+                <div className="flex justify-between items-start">
+                  <div className="flex-1">
+                    <span className="text-sm font-medium text-gray-900">{opportunity.title}</span>
+                  </div>
+                  <div className="text-right ml-3">
+                    <div className="text-sm">
+                      <span className="text-green-600 font-medium">{opportunity.filled_count}</span>
+                      <span className="text-gray-500"> / </span>
+                      <span className="text-gray-900">{opportunity.volunteers_needed}</span>
+                      <span className="text-gray-500 text-xs ml-1">filled</span>
                     </div>
-                  ))}
+                    {opportunity.open_positions > 0 ? (
+                      <div className="text-xs text-orange-600">
+                        {opportunity.open_positions} positions open
+                      </div>
+                    ) : (
+                      <div className="text-xs text-green-600">Fully staffed</div>
+                    )}
+                  </div>
                 </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="mb-4 text-sm text-gray-500">No volunteer opportunities yet</div>
+      )}
+
+      <div className="flex justify-between items-center">
+        <span className="text-xs text-gray-500">
+          Created: {new Date(project.created_at).toLocaleDateString()}
+        </span>
+        <button
+          onClick={() => router.push(`/tenant/projects/${project.id}`)}
+          className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
+        >
+          View Details →
+        </button>
+      </div>
+    </div>
+  ))}
+</div>
               )}
             </div>
           </div>
