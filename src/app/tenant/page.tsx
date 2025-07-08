@@ -7,7 +7,8 @@ import { supabase } from '../../lib/supabase'
 interface TenantInfo {
   id: string
   name: string
-  owner_id: string
+  slug: string        // Add this back
+  // owner_id: string // Remove this for now
 }
 
 interface Project {
@@ -82,7 +83,7 @@ export default function TenantDashboard() {
       // Then get the tenant info separately
       const { data: tenant, error: tenantError } = await supabase
         .from('tenants')
-        .select('id, name, owner_id')
+        .select('id, name, slug')
         .eq('id', profile.tenant_id)
         .single()
 
@@ -266,7 +267,7 @@ export default function TenantDashboard() {
   useEffect(() => {
     loadTenantData()
   }, [loadTenantData])
-
+console.log('Members array:', members, 'Length:', members.length)
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -524,7 +525,9 @@ export default function TenantDashboard() {
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
+                    
                       {members.map((member) => (
+                        
                         <tr key={member.id}>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <div className="text-sm font-medium text-gray-900">
