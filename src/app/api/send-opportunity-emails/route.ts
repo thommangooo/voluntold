@@ -191,7 +191,8 @@ export async function POST(request: NextRequest) {
         }
 
         // Small delay to avoid overwhelming Resend
-        await new Promise(resolve => setTimeout(resolve, 100))
+        // Delay to respect Resend's 2 requests per second limit
+        await new Promise(resolve => setTimeout(resolve, 1200))
 
       } catch (error) {
         console.error(`Error sending to ${member.email}:`, error)
