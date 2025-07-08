@@ -15,8 +15,30 @@ interface Project {
   id: string
   name: string
   description: string
+  status: 'active' | 'closed' | 'on_hold'  // Add this
+  goals: string | null                      // Add this
   created_at: string
-  opportunities?: OpportunityWithStats[]  // Add this line
+  opportunities?: OpportunityWithStats[]
+}
+
+interface ProjectResource {
+  id: string
+  project_id: string
+  type: 'file' | 'link' | 'note'
+  title: string
+  content: string
+  created_by: string
+  created_at: string
+}
+
+interface AdditionalHours {
+  id: string
+  project_id: string
+  member_id: string
+  hours_worked: number
+  description: string | null
+  date_worked: string
+  created_at: string
 }
 
 interface OpportunityWithStats {
@@ -50,11 +72,15 @@ export default function TenantDashboard() {
   const [showMemberForm, setShowMemberForm] = useState(false)
   const [editingMember, setEditingMember] = useState<Member | null>(null)
   const [deletingMember, setDeletingMember] = useState<Member | null>(null)
+  const [editingProject, setEditingProject] = useState<Project | null>(null)
+  const [projectToClose, setProjectToClose] = useState<Project | null>(null)
 
   const [newProject, setNewProject] = useState({
     name: '',
-    description: ''
+    description: '',
+    goals: ''  // Add this line
   })
+
 
   const [newMember, setNewMember] = useState({
     email: '',
@@ -112,18 +138,19 @@ export default function TenantDashboard() {
   }, [router])
 
   // Enhanced loadProjects function - replace your existing one
-const loadProjects = async (tenantId: string) => {
+  const loadProjects = async (tenantId: string) => {
   try {
-    // First get all projects
+    // Get active projects with all fields including status and goals
     const { data: projects, error: projectError } = await supabase
       .from('projects')
       .select('*')
       .eq('tenant_id', tenantId)
+      .eq('status', 'active')
       .order('created_at', { ascending: false })
 
     if (projectError) throw projectError
 
-    // Then get opportunities with signup counts for each project
+    // Get opportunities with signup counts for each project
     const projectsWithOpportunities = await Promise.all(
       (projects || []).map(async (project) => {
         // Get opportunities for this project
@@ -158,10 +185,16 @@ const loadProjects = async (tenantId: string) => {
           })
         )
 
+        // Return the complete project with proper typing
         return {
-          ...project,
+          id: project.id,
+          name: project.name,
+          description: project.description,
+          status: project.status,
+          goals: project.goals,
+          created_at: project.created_at,
           opportunities: opportunitiesWithStats
-        }
+        } as Project
       })
     )
 
@@ -187,35 +220,90 @@ const loadProjects = async (tenantId: string) => {
   }
 
   const createProject = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!tenantInfo) return
+  e.preventDefault()
+  if (!tenantInfo) return
 
-    setLoading(true)
-    setMessage('')
+  setLoading(true)
+  setMessage('')
 
-    try {
-      const { error } = await supabase
-        .from('projects')
-        .insert([
-          {
-            tenant_id: tenantInfo.id,
-            name: newProject.name,
-            description: newProject.description
-          }
-        ])
+  try {
+    const { error } = await supabase
+      .from('projects')
+      .insert([
+        {
+          tenant_id: tenantInfo.id,
+          name: newProject.name,
+          description: newProject.description,
+          goals: newProject.goals || null,  // Add this line
+          status: 'active'  // Add this line
+        }
+      ])
 
-      if (error) throw error
+    if (error) throw error
 
-      setMessage(`Project "${newProject.name}" created successfully!`)
-      setNewProject({ name: '', description: '' })
-      setShowProjectForm(false)
-      loadProjects(tenantInfo.id)
-    } catch (error) {
-      setMessage(`Error: ${(error as Error).message}`)
-    } finally {
-      setLoading(false)
-    }
+    setMessage(`Project "${newProject.name}" created successfully!`)
+    setNewProject({ name: '', description: '', goals: '' })  // Update this line
+    setShowProjectForm(false)
+    loadProjects(tenantInfo.id)
+  } catch (error) {
+    setMessage(`Error: ${(error as Error).message}`)
+  } finally {
+    setLoading(false)
   }
+}
+
+const updateProject = async (updatedData: any) => {
+  if (!editingProject || !tenantInfo) return
+
+  setLoading(true)
+  setMessage('')
+
+  try {
+    const { error } = await supabase
+      .from('projects')
+      .update({
+        name: updatedData.name,
+        description: updatedData.description,
+        goals: updatedData.goals || null,
+        status: updatedData.status
+      })
+      .eq('id', editingProject.id)
+
+    if (error) throw error
+
+    setMessage(`Project "${updatedData.name}" updated successfully!`)
+    setEditingProject(null)
+    loadProjects(tenantInfo.id)
+  } catch (error) {
+    setMessage(`Error: ${(error as Error).message}`)
+  } finally {
+    setLoading(false)
+  }
+}
+
+const closeProject = async () => {
+  if (!projectToClose || !tenantInfo) return
+
+  setLoading(true)
+  setMessage('')
+
+  try {
+    const { error } = await supabase
+      .from('projects')
+      .update({ status: 'closed' })
+      .eq('id', projectToClose.id)
+
+    if (error) throw error
+
+    setMessage(`Project "${projectToClose.name}" has been closed.`)
+    setProjectToClose(null)
+    loadProjects(tenantInfo.id)
+  } catch (error) {
+    setMessage(`Error: ${(error as Error).message}`)
+  } finally {
+    setLoading(false)
+  }
+}
 
   const addMember = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -392,29 +480,43 @@ console.log('Members array:', members, 'Length:', members.length)
                     />
                   </div>
 
-                  <div>
-                    <label htmlFor="projectDescription" className="block text-sm font-medium text-gray-700">
-                      Description
-                    </label>
-                    <textarea
-                      id="projectDescription"
-                      value={newProject.description}
-                      onChange={(e) => setNewProject({ ...newProject, description: e.target.value })}
-                      rows={3}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                    />
-                  </div>
+      <div>
+        <label htmlFor="projectDescription" className="block text-sm font-medium text-gray-700">
+          Description
+        </label>
+        <textarea
+          id="projectDescription"
+          value={newProject.description}
+          onChange={(e) => setNewProject({ ...newProject, description: e.target.value })}
+          rows={3}
+          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+        />
+      </div>
 
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    {loading ? 'Creating...' : 'Create Project'}
-                  </button>
-                </form>
-              </div>
-            )}
+      <div>
+        <label htmlFor="projectGoals" className="block text-sm font-medium text-gray-700">
+          Goals & Objectives
+        </label>
+        <textarea
+          id="projectGoals"
+          value={newProject.goals}
+          onChange={(e) => setNewProject({ ...newProject, goals: e.target.value })}
+          rows={3}
+          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+          placeholder="What are the main goals and expected outcomes for this project?"
+        />
+      </div>
+
+      <button
+        type="submit"
+        disabled={loading}
+        className="bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 disabled:opacity-50"
+      >
+        {loading ? 'Creating...' : 'Create Project'}
+      </button>
+    </form>
+  </div>
+)}
 
             <div className="p-6">
               {projects.length === 0 ? (
@@ -466,14 +568,33 @@ console.log('Members array:', members, 'Length:', members.length)
 
       <div className="flex justify-between items-center">
         <span className="text-xs text-gray-500">
-          Created: {new Date(project.created_at).toLocaleDateString()}
+          
         </span>
-        <button
-          onClick={() => router.push(`/tenant/projects/${project.id}`)}
-          className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
-        >
-          View Details →
-        </button>
+        <div className="flex justify-between items-center">
+  <span className="text-xs text-gray-500">
+    
+  </span>
+  <div className="flex gap-2">
+    <button
+      onClick={() => setEditingProject(project)}
+      className="text-green-600 hover:text-green-800 font-medium cursor-pointer text-sm"
+    >
+      Edit
+    </button>
+    <button
+      onClick={() => setProjectToClose(project)}
+      className="text-red-600 hover:text-red-800 font-medium cursor-pointer text-sm"
+    >
+      Close
+    </button>
+    <button
+      onClick={() => router.push(`/tenant/projects/${project.id}`)}
+      className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
+    >
+      View Details →
+    </button>
+  </div>
+</div>
       </div>
     </div>
   ))}
@@ -816,6 +937,117 @@ console.log('Members array:', members, 'Length:', members.length)
           </div>
          )}
       </div>
+      {/* Edit Project Modal */}
+{editingProject && (
+  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-screen overflow-y-auto">
+      <h3 className="text-lg font-semibold mb-4">Edit Project</h3>
+      
+      <form onSubmit={(e) => {
+        e.preventDefault()
+        const formData = new FormData(e.target as HTMLFormElement)
+        updateProject({
+          name: formData.get('name'),
+          description: formData.get('description'),
+          goals: formData.get('goals'),
+          status: formData.get('status')
+        })
+      }} className="space-y-4">
+        
+        <div>
+          <label className="block text-sm font-medium text-gray-700">Project Name *</label>
+          <input
+            type="text"
+            name="name"
+            defaultValue={editingProject.name}
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+            required
+          />
+        </div>
+        
+        <div>
+          <label className="block text-sm font-medium text-gray-700">Description</label>
+          <textarea
+            name="description"
+            rows={3}
+            defaultValue={editingProject.description}
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+          />
+        </div>
+        
+        <div>
+          <label className="block text-sm font-medium text-gray-700">Goals & Objectives</label>
+          <textarea
+            name="goals"
+            rows={3}
+            defaultValue={editingProject.goals || ''}
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+            placeholder="What are the main goals and expected outcomes?"
+          />
+        </div>
+        
+        <div>
+          <label className="block text-sm font-medium text-gray-700">Status</label>
+          <select
+            name="status"
+            defaultValue={editingProject.status}
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+          >
+            <option value="active">Active</option>
+            <option value="on_hold">On Hold</option>
+            <option value="closed">Closed</option>
+          </select>
+        </div>
+        
+        <div className="flex justify-end space-x-3">
+          <button
+            type="button"
+            onClick={() => setEditingProject(null)}
+            className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={loading}
+            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+          >
+            {loading ? 'Saving...' : 'Save Changes'}
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+)}
+
+{/* Close Project Confirmation Modal */}
+{projectToClose && (
+  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div className="bg-white rounded-lg p-6 w-full max-w-md">
+      <h3 className="text-lg font-semibold mb-4">Close Project</h3>
+      <p className="text-gray-600 mb-6">
+        Are you sure you want to close <strong>"{projectToClose.name}"</strong>? 
+        This will remove it from the dashboard and mark it as completed.
+      </p>
+      
+      <div className="flex justify-end space-x-3">
+        <button
+          onClick={() => setProjectToClose(null)}
+          className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={closeProject}
+          disabled={loading}
+          className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
+        >
+          {loading ? 'Closing...' : 'Close Project'}
+        </button>
+      </div>
+    </div>
+  </div>
+)}
     </div>
   </>
   )
