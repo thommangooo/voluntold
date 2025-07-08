@@ -1,5 +1,5 @@
 'use client'
-
+import Header from '../../components/Header'
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../../lib/supabase'
@@ -287,7 +287,10 @@ console.log('Members array:', members, 'Length:', members.length)
     )
   }
 
+  
   return (
+  <>
+    <Header />
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
@@ -717,8 +720,9 @@ console.log('Members array:', members, 'Length:', members.length)
               </div>
             </div>
           </div>
-        )}
+         )}
       </div>
     </div>
+  </>
   )
 }
