@@ -132,6 +132,8 @@ export default function TenantAdminPage() {
             first_name: newMember.firstName,
             last_name: newMember.lastName,
             role: newMember.role,
+            // Add this line to generate a UUID for the id field:
+            id: crypto.randomUUID()
           }
         ])
 
@@ -260,23 +262,25 @@ export default function TenantAdminPage() {
               No projects yet. Create your first project above!
             </div>
           ) : (
-            <div className="p-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {projects.map((project) => (
-                  <div key={project.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
-                    <h4 className="font-semibold text-lg mb-2">{project.name}</h4>
-                    {project.description && (
-                      <p className="text-gray-600 text-sm mb-3">{project.description}</p>
-                    )}
-                    <div className="flex justify-between items-center text-xs text-gray-500">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {projects.map((project) => (
+                <div key={project.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
+                  <h4 className="font-semibold text-lg mb-2">{project.name}</h4>
+                  {project.description && (
+                    <p className="text-gray-600 text-sm mb-3">{project.description}</p>
+                  )}
+                  <div className="flex justify-between items-center text-xs text-gray-500">
                       <span>Created: {new Date(project.created_at).toLocaleDateString()}</span>
-                      <button className="text-blue-600 hover:text-blue-800 font-medium">
-                        Manage →
-                      </button>
-                    </div>
+                      <a 
+                      href={`/tenant/projects/${project.id}`}
+                      className="text-blue-600 hover:text-blue-800 font-medium"
+                    >
+                      Manage →
+                    </a>
+                    
                   </div>
-                ))}
-              </div>
+                </div>
+              ))}
             </div>
           )}
         </div>
