@@ -15,9 +15,10 @@ interface Project {
   id: string
   name: string
   description: string
-  status: 'active' | 'closed' | 'on_hold'  // Add this
-  goals: string | null                      // Add this
+  status: 'active' | 'closed' | 'on_hold'
+  goals: string | null
   created_at: string
+  total_hours?: number  // Add this line
   opportunities?: OpportunityWithStats[]
 }
 
@@ -138,7 +139,7 @@ export default function TenantDashboard() {
   }, [router])
 
   // Enhanced loadProjects function - replace your existing one
-  const loadProjects = async (tenantId: string) => {
+ const loadProjects = async (tenantId: string) => {
   try {
     // Get active projects with all fields including status and goals
     const { data: projects, error: projectError } = await supabase
@@ -150,19 +151,20 @@ export default function TenantDashboard() {
 
     if (projectError) throw projectError
 
-    // Get opportunities with signup counts for each project
+    // Get opportunities with signup counts and calculate total hours for each project
     const projectsWithOpportunities = await Promise.all(
       (projects || []).map(async (project) => {
-        // Get opportunities for this project
+        // Get opportunities for this project with duration info
         const { data: opportunities, error: oppError } = await supabase
           .from('opportunities')
-          .select('id, title, volunteers_needed')
+          .select('id, title, volunteers_needed, duration_hours')
           .eq('project_id', project.id)
           .order('date_scheduled', { ascending: true })
 
         if (oppError) throw oppError
 
-        // Get signup counts for each opportunity
+        // Calculate opportunity hours and get signup counts
+        let totalOpportunityHours = 0
         const opportunitiesWithStats = await Promise.all(
           (opportunities || []).map(async (opportunity) => {
             const { count, error: countError } = await supabase
@@ -176,14 +178,38 @@ export default function TenantDashboard() {
             const filled_count = count || 0
             const volunteers_needed = opportunity.volunteers_needed || 1
             const open_positions = Math.max(0, volunteers_needed - filled_count)
+            const duration_hours = opportunity.duration_hours || 0
+
+            // Calculate hours for this opportunity (signups * duration)
+            const opportunityHours = filled_count * duration_hours
+            totalOpportunityHours += opportunityHours
 
             return {
-              ...opportunity,
+              id: opportunity.id,
+              title: opportunity.title,
+              volunteers_needed,
               filled_count,
               open_positions
             }
           })
         )
+
+        // Get additional hours for this project
+        const { data: additionalHours, error: hoursError } = await supabase
+          .from('additional_hours')
+          .select('hours_worked')
+          .eq('project_id', project.id)
+
+        if (hoursError) throw hoursError
+
+        // Sum additional hours
+        const totalAdditionalHours = (additionalHours || []).reduce(
+          (sum, record) => sum + (record.hours_worked || 0), 
+          0
+        )
+
+        // Calculate total hours
+        const total_hours = totalOpportunityHours + totalAdditionalHours
 
         // Return the complete project with proper typing
         return {
@@ -193,6 +219,7 @@ export default function TenantDashboard() {
           status: project.status,
           goals: project.goals,
           created_at: project.created_at,
+          total_hours,
           opportunities: opportunitiesWithStats
         } as Project
       })
@@ -429,7 +456,6 @@ console.log('Members array:', members, 'Length:', members.length)
     )
   }
 
-  
   return (
   <>
     <Header />
@@ -480,125 +506,146 @@ console.log('Members array:', members, 'Length:', members.length)
                     />
                   </div>
 
-      <div>
-        <label htmlFor="projectDescription" className="block text-sm font-medium text-gray-700">
-          Description
-        </label>
-        <textarea
-          id="projectDescription"
-          value={newProject.description}
-          onChange={(e) => setNewProject({ ...newProject, description: e.target.value })}
-          rows={3}
-          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-        />
-      </div>
+                  <div>
+                    <label htmlFor="projectDescription" className="block text-sm font-medium text-gray-700">
+                      Description
+                    </label>
+                    <textarea
+                      id="projectDescription"
+                      value={newProject.description}
+                      onChange={(e) => setNewProject({ ...newProject, description: e.target.value })}
+                      rows={3}
+                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                    />
+                  </div>
 
-      <div>
-        <label htmlFor="projectGoals" className="block text-sm font-medium text-gray-700">
-          Goals & Objectives
-        </label>
-        <textarea
-          id="projectGoals"
-          value={newProject.goals}
-          onChange={(e) => setNewProject({ ...newProject, goals: e.target.value })}
-          rows={3}
-          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-          placeholder="What are the main goals and expected outcomes for this project?"
-        />
-      </div>
+                  <div>
+                    <label htmlFor="projectGoals" className="block text-sm font-medium text-gray-700">
+                      Goals & Objectives
+                    </label>
+                    <textarea
+                      id="projectGoals"
+                      value={newProject.goals}
+                      onChange={(e) => setNewProject({ ...newProject, goals: e.target.value })}
+                      rows={3}
+                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                      placeholder="What are the main goals and expected outcomes for this project?"
+                    />
+                  </div>
 
-      <button
-        type="submit"
-        disabled={loading}
-        className="bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 disabled:opacity-50"
-      >
-        {loading ? 'Creating...' : 'Create Project'}
-      </button>
-    </form>
-  </div>
-)}
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {loading ? 'Creating...' : 'Create Project'}
+                  </button>
+                </form>
+              </div>
+            )}
 
             <div className="p-6">
               {projects.length === 0 ? (
                 <p className="text-gray-500 text-center py-8">No projects yet. Create your first project to get started!</p>
               ) : (
-                // Updated project card JSX - replace your existing project card section
-<div className="space-y-4">
-  {projects.map((project) => (
-    <div key={project.id} className="border rounded-lg p-4 hover:shadow-sm transition-shadow">
-      <h3 className="font-semibold text-lg mb-2">{project.name}</h3>
-      {project.description && (
-        <p className="text-gray-600 mb-3">{project.description}</p>
-      )}
-      
-      {/* Opportunities List */}
-      {project.opportunities && project.opportunities.length > 0 ? (
-        <div className="mb-4">
-          <h4 className="text-sm font-medium text-gray-700 mb-2">Volunteer Opportunities:</h4>
-          <div className="space-y-2">
-            {project.opportunities.map((opportunity) => (
-              <div key={opportunity.id} className="bg-gray-50 rounded p-3">
-                <div className="flex justify-between items-start">
-                  <div className="flex-1">
-                    <span className="text-sm font-medium text-gray-900">{opportunity.title}</span>
-                  </div>
-                  <div className="text-right ml-3">
-                    <div className="text-sm">
-                      <span className="text-green-600 font-medium">{opportunity.filled_count}</span>
-                      <span className="text-gray-500"> / </span>
-                      <span className="text-gray-900">{opportunity.volunteers_needed}</span>
-                      <span className="text-gray-500 text-xs ml-1">filled</span>
-                    </div>
-                    {opportunity.open_positions > 0 ? (
-                      <div className="text-xs text-orange-600">
-                        {opportunity.open_positions} positions open
-                      </div>
-                    ) : (
-                      <div className="text-xs text-green-600">Fully staffed</div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : (
-        <div className="mb-4 text-sm text-gray-500">No volunteer opportunities yet</div>
-      )}
+                <div className="space-y-4">
+                  {projects.map((project) => (
+                    <div key={project.id} className="border rounded-lg p-4 hover:shadow-sm transition-shadow relative">
+                      {/* Close X in top right corner */}
+                      <button
+                        onClick={() => setProjectToClose(project)}
+                        className="absolute top-2 right-2 text-gray-400 hover:text-red-500 text-lg font-bold w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-100"
+                        title="Close project"
+                      >
+                        ×
+                      </button>
+                      
+                      <h3 className="font-semibold text-lg mb-2 pr-8">{project.name}</h3>
+                      {project.description && (
+                        <p className="text-gray-600 mb-3">{project.description}</p>
+                      )}
+                      
+                      {/* Opportunities List */}
+                      {project.opportunities && project.opportunities.length > 0 ? (
+                        <div className="mb-4">
+                          <h4 className="text-sm font-medium text-gray-700 mb-2">Volunteer Opportunities:</h4>
+                          <div className="space-y-2">
+                            {project.opportunities.map((opportunity) => (
+                              <div key={opportunity.id} className="bg-gray-50 rounded p-3">
+                                <div className="flex justify-between items-start">
+                                  <div className="flex-1">
+                                    <span className="text-sm font-medium text-gray-900">{opportunity.title}</span>
+                                  </div>
+                                  <div className="text-right ml-3">
+                                    <div className="text-sm">
+                                      <span className="text-green-600 font-medium">{opportunity.filled_count}</span>
+                                      <span className="text-gray-500"> / </span>
+                                      <span className="text-gray-900">{opportunity.volunteers_needed}</span>
+                                      <span className="text-gray-500 text-xs ml-1">filled</span>
+                                    </div>
+                                    {opportunity.open_positions > 0 ? (
+                                      <div className="text-xs text-orange-600">
+                                        {opportunity.open_positions} positions open
+                                      </div>
+                                    ) : (
+                                      <div className="text-xs text-green-600">Fully staffed</div>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                       ) : (
+                            <div className="mb-4 text-sm text-gray-500">No volunteer opportunities yet</div>
+                          )}
 
-      <div className="flex justify-between items-center">
-        <span className="text-xs text-gray-500">
-          
-        </span>
-        <div className="flex justify-between items-center">
-  <span className="text-xs text-gray-500">
-    
-  </span>
-  <div className="flex gap-2">
-    <button
-      onClick={() => setEditingProject(project)}
-      className="text-green-600 hover:text-green-800 font-medium cursor-pointer text-sm"
-    >
-      Edit
-    </button>
-    <button
-      onClick={() => setProjectToClose(project)}
-      className="text-red-600 hover:text-red-800 font-medium cursor-pointer text-sm"
-    >
-      Close
-    </button>
-    <button
-      onClick={() => router.push(`/tenant/projects/${project.id}`)}
-      className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
-    >
-      View Details →
-    </button>
-  </div>
-</div>
-      </div>
-    </div>
-  ))}
-</div>
+                          {/* Total Hours Display */}
+                          <div className="mb-4 p-3 bg-blue-50 rounded-lg">
+                            <div className="flex justify-between items-center">
+                              <span className="text-sm font-medium text-blue-900">Total Volunteer Hours</span>
+                              <span className="text-lg font-bold text-blue-900">
+                                {project.total_hours?.toFixed(1) || '0.0'} hrs
+                              </span>
+                            </div>
+                            {project.total_hours && project.total_hours > 0 && (
+                              <div className="text-xs text-blue-700 mt-1">
+                                From {project.opportunities?.length || 0} opportunities + additional hours
+                              </div>
+                            )}
+                          </div>
+                      {/* Total Hours Display */}
+                      <div className="mb-4 p-3 bg-blue-50 rounded-lg">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm font-medium text-blue-900">Total Volunteer Hours</span>
+                          <span className="text-lg font-bold text-blue-900">
+                            {project.total_hours?.toFixed(1) || '0.0'} hrs
+                          </span>
+                        </div>
+                        {project.total_hours && project.total_hours > 0 && (
+                          <div className="text-xs text-blue-700 mt-1">
+                            From {project.opportunities?.length || 0} opportunities + additional hours
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex justify-end gap-2">
+                        <button
+                          onClick={() => setEditingProject(project)}
+                          className="text-green-600 hover:text-green-800 font-medium cursor-pointer text-sm"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => router.push(`/tenant/projects/${project.id}`)}
+                          className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
+                        >
+                          View Details →
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
           </div>
@@ -743,9 +790,7 @@ console.log('Members array:', members, 'Length:', members.length)
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                    
                       {members.map((member) => (
-                        
                         <tr key={member.id}>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <div className="text-sm font-medium text-gray-900">
@@ -935,120 +980,120 @@ console.log('Members array:', members, 'Length:', members.length)
               </div>
             </div>
           </div>
-         )}
-      </div>
-      {/* Edit Project Modal */}
-{editingProject && (
-  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-    <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-screen overflow-y-auto">
-      <h3 className="text-lg font-semibold mb-4">Edit Project</h3>
-      
-      <form onSubmit={(e) => {
-        e.preventDefault()
-        const formData = new FormData(e.target as HTMLFormElement)
-        updateProject({
-          name: formData.get('name'),
-          description: formData.get('description'),
-          goals: formData.get('goals'),
-          status: formData.get('status')
-        })
-      }} className="space-y-4">
-        
-        <div>
-          <label className="block text-sm font-medium text-gray-700">Project Name *</label>
-          <input
-            type="text"
-            name="name"
-            defaultValue={editingProject.name}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-            required
-          />
-        </div>
-        
-        <div>
-          <label className="block text-sm font-medium text-gray-700">Description</label>
-          <textarea
-            name="description"
-            rows={3}
-            defaultValue={editingProject.description}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-          />
-        </div>
-        
-        <div>
-          <label className="block text-sm font-medium text-gray-700">Goals & Objectives</label>
-          <textarea
-            name="goals"
-            rows={3}
-            defaultValue={editingProject.goals || ''}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-            placeholder="What are the main goals and expected outcomes?"
-          />
-        </div>
-        
-        <div>
-          <label className="block text-sm font-medium text-gray-700">Status</label>
-          <select
-            name="status"
-            defaultValue={editingProject.status}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-          >
-            <option value="active">Active</option>
-            <option value="on_hold">On Hold</option>
-            <option value="closed">Closed</option>
-          </select>
-        </div>
-        
-        <div className="flex justify-end space-x-3">
-          <button
-            type="button"
-            onClick={() => setEditingProject(null)}
-            className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={loading}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
-          >
-            {loading ? 'Saving...' : 'Save Changes'}
-          </button>
-        </div>
-      </form>
-    </div>
-  </div>
-)}
+        )}
 
-{/* Close Project Confirmation Modal */}
-{projectToClose && (
-  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-    <div className="bg-white rounded-lg p-6 w-full max-w-md">
-      <h3 className="text-lg font-semibold mb-4">Close Project</h3>
-      <p className="text-gray-600 mb-6">
-        Are you sure you want to close <strong>"{projectToClose.name}"</strong>? 
-        This will remove it from the dashboard and mark it as completed.
-      </p>
-      
-      <div className="flex justify-end space-x-3">
-        <button
-          onClick={() => setProjectToClose(null)}
-          className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
-        >
-          Cancel
-        </button>
-        <button
-          onClick={closeProject}
-          disabled={loading}
-          className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
-        >
-          {loading ? 'Closing...' : 'Close Project'}
-        </button>
+        {/* Edit Project Modal */}
+        {editingProject && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-screen overflow-y-auto">
+              <h3 className="text-lg font-semibold mb-4">Edit Project</h3>
+              
+              <form onSubmit={(e) => {
+                e.preventDefault()
+                const formData = new FormData(e.target as HTMLFormElement)
+                updateProject({
+                  name: formData.get('name'),
+                  description: formData.get('description'),
+                  goals: formData.get('goals'),
+                  status: formData.get('status')
+                })
+              }} className="space-y-4">
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Project Name *</label>
+                  <input
+                    type="text"
+                    name="name"
+                    defaultValue={editingProject.name}
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                    required
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Description</label>
+                  <textarea
+                    name="description"
+                    rows={3}
+                    defaultValue={editingProject.description}
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Goals & Objectives</label>
+                  <textarea
+                    name="goals"
+                    rows={3}
+                    defaultValue={editingProject.goals || ''}
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                    placeholder="What are the main goals and expected outcomes?"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Status</label>
+                  <select
+                    name="status"
+                    defaultValue={editingProject.status}
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  >
+                    <option value="active">Active</option>
+                    <option value="on_hold">On Hold</option>
+                    <option value="closed">Closed</option>
+                  </select>
+                </div>
+                
+                <div className="flex justify-end space-x-3">
+                  <button
+                    type="button"
+                    onClick={() => setEditingProject(null)}
+                    className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {loading ? 'Saving...' : 'Save Changes'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Close Project Confirmation Modal */}
+        {projectToClose && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md">
+              <h3 className="text-lg font-semibold mb-4">Close Project</h3>
+              <p className="text-gray-600 mb-6">
+                Are you sure you want to close <strong>"{projectToClose.name}"</strong>? 
+                This will remove it from the dashboard and mark it as completed.
+              </p>
+              
+              <div className="flex justify-end space-x-3">
+                <button
+                  onClick={() => setProjectToClose(null)}
+                  className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={closeProject}
+                  disabled={loading}
+                  className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
+                >
+                  {loading ? 'Closing...' : 'Close Project'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
-    </div>
-  </div>
-)}
     </div>
   </>
-  )
-}
+)}
