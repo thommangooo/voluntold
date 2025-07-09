@@ -73,6 +73,7 @@ interface Poll {
   total_responses: number
   created_at: string
   expires_at: string | null
+  last_emailed_at: string | null  // Add this line
 }
 
 interface PollResponse {
@@ -99,6 +100,8 @@ export default function TenantDashboard() {
   const [deletingMember, setDeletingMember] = useState<Member | null>(null)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
   const [projectToClose, setProjectToClose] = useState<Project | null>(null)
+  const [showAllResponses, setShowAllResponses] = useState(false)
+  const [pollToClose, setPollToClose] = useState<Poll | null>(null)
 
   const [newProject, setNewProject] = useState({
     name: '',
@@ -140,6 +143,7 @@ const loadPolls = async (tenantId: string) => {
       .from('polls')
       .select('*')
       .eq('tenant_id', tenantId)
+      .neq('status', 'closed')  // Add this line to exclude closed polls
       .order('created_at', { ascending: false })
 
     if (error) throw error
@@ -506,7 +510,7 @@ console.log('Members array:', members, 'Length:', members.length)
   if (!tenantInfo) return
 
   setLoading(true)
-  setMessage('Sending emails... This may take a moment for multiple members.')
+  setMessage('Sending emails one at a time...hang tight.')
 
   try {
     const { data: { session } } = await supabase.auth.getSession()
@@ -559,7 +563,8 @@ const createPoll = async (e: React.FormEvent) => {
       ? newPoll.options.filter(opt => opt.trim() !== '')
       : null
 
-    const { error } = await supabase
+    // Create the poll
+    const { data: poll, error: pollError } = await supabase
       .from('polls')
       .insert([
         {
@@ -571,13 +576,41 @@ const createPoll = async (e: React.FormEvent) => {
           is_anonymous: newPoll.is_anonymous,
           expires_at: newPoll.expires_at || null,
           created_by: session.user.id,
-          status: 'draft'
+          status: 'active'
         }
       ])
+      .select()
+      .single()
 
-    if (error) throw error
+    if (pollError) throw pollError
 
-    setMessage(`Poll "${newPoll.title}" created successfully!`)
+    // Create poll response records for all members
+    const { data: members, error: membersError } = await supabase
+      .from('user_profiles')
+      .select('email, first_name, last_name')
+      .eq('tenant_id', tenantInfo.id)
+
+    if (membersError) throw membersError
+
+    if (members && members.length > 0) {
+      const pollResponses = members.map(member => ({
+        poll_id: poll.id,
+        tenant_id: tenantInfo.id,
+        member_email: member.email,
+        member_name: `${member.first_name} ${member.last_name}`,
+        response: '',
+        response_token: crypto.randomUUID(),
+        responded_at: null
+      }))
+
+      const { error: responsesError } = await supabase
+        .from('poll_responses')
+        .insert(pollResponses)
+
+      if (responsesError) throw responsesError
+    }
+
+    setMessage(`Poll "${newPoll.title}" created successfully with ${members?.length || 0} member records!`)
     setNewPoll({
       title: '',
       question: '',
@@ -641,18 +674,28 @@ const updatePollResponse = async (responseId: string, newResponse: string) => {
     const { data: { session } } = await supabase.auth.getSession()
     if (!session?.user) throw new Error('Not authenticated')
 
+    // Check if this is a new response or an update
+    const isNewResponse = !editingResponse.response || editingResponse.response.trim() === ''
+
+    const updateData: any = {
+      response: newResponse,
+      updated_by: session.user.id,
+      updated_at: new Date().toISOString()
+    }
+
+    // If it's a new response, also set responded_at
+    if (isNewResponse) {
+      updateData.responded_at = new Date().toISOString()
+    }
+
     const { error } = await supabase
       .from('poll_responses')
-      .update({
-        response: newResponse,
-        updated_by: session.user.id,
-        updated_at: new Date().toISOString()
-      })
+      .update(updateData)
       .eq('id', responseId)
 
     if (error) throw error
 
-    setMessage('Response updated successfully!')
+    setMessage(isNewResponse ? 'Response recorded successfully!' : 'Response updated successfully!')
     setEditingResponse(null)
     if (viewingPoll) {
       loadPollResponses(viewingPoll.id)
@@ -936,172 +979,171 @@ const updatePollResponse = async (responseId: string, newResponse: string) => {
             </div>
             </div>
 
-                    {/* Polls Section - ADD THIS ENTIRE SECTION */}
-        <div className="bg-white rounded-lg shadow mt-8">
-          <div className="px-6 py-4 border-b">
-            <div className="flex justify-between items-center">
-              <h2 className="text-xl font-semibold">Polls ({polls.length})</h2>
-              <button
-                onClick={() => setShowPollForm(!showPollForm)}
-                className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
-              >
-                {showPollForm ? 'Hide Form' : 'Create Poll'}
-              </button>
-            </div>
-          </div>
-
-          {showPollForm && (
-            <div className="p-6 border-b bg-gray-50">
-              <form onSubmit={createPoll} className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Poll Title</label>
-                    <input
-                      type="text"
-                      value={newPoll.title}
-                      onChange={(e) => setNewPoll({ ...newPoll, title: e.target.value })}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                      placeholder="e.g., Annual Picnic Location"
-                      required
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Poll Type</label>
-                    <select
-                      value={newPoll.poll_type}
-                      onChange={(e) => setNewPoll({ ...newPoll, poll_type: e.target.value as 'yes_no' | 'multiple_choice' })}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                    >
-                      <option value="yes_no">Yes/No</option>
-                      <option value="multiple_choice">Multiple Choice</option>
-                    </select>
-                  </div>
+            {/* Polls Section */}
+            <div className="bg-white rounded-lg shadow mt-8">
+              <div className="px-6 py-4 border-b">
+                <div className="flex justify-between items-center">
+                  <h2 className="text-xl font-semibold">Active Polls ({polls.length})</h2>
+                  <button
+                    onClick={() => setShowPollForm(!showPollForm)}
+                    className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
+                  >
+                    {showPollForm ? 'Hide Form' : 'Create Poll'}
+                  </button>
                 </div>
+              </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Question</label>
-                  <textarea
-                    value={newPoll.question}
-                    onChange={(e) => setNewPoll({ ...newPoll, question: e.target.value })}
-                    rows={3}
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                    placeholder="What would you like to ask your members?"
-                    required
-                  />
-                </div>
-
-                {newPoll.poll_type === 'multiple_choice' && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Options</label>
-                    {newPoll.options.map((option, index) => (
-                      <div key={index} className="flex gap-2 mt-2">
+              {showPollForm && (
+                <div className="p-6 border-b bg-gray-50">
+                  <form onSubmit={createPoll} className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700">Poll Title</label>
                         <input
                           type="text"
-                          value={option}
-                          onChange={(e) => {
-                            const newOptions = [...newPoll.options]
-                            newOptions[index] = e.target.value
-                            setNewPoll({ ...newPoll, options: newOptions })
-                          }}
-                          className="flex-1 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                          placeholder={`Option ${index + 1}`}
+                          value={newPoll.title}
+                          onChange={(e) => setNewPoll({ ...newPoll, title: e.target.value })}
+                          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                          placeholder="e.g., Annual Picnic Location"
+                          required
                         />
-                        {index > 0 && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const newOptions = newPoll.options.filter((_, i) => i !== index)
-                              setNewPoll({ ...newPoll, options: newOptions })
-                            }}
-                            className="text-red-600 hover:text-red-800"
-                          >
-                            Remove
-                          </button>
-                        )}
                       </div>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={() => setNewPoll({ ...newPoll, options: [...newPoll.options, ''] })}
-                      className="mt-2 text-blue-600 hover:text-blue-800 text-sm"
-                    >
-                      + Add Option
-                    </button>
-                  </div>
-                )}
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="flex items-center">
-                      <input
-                        type="checkbox"
-                        checked={newPoll.is_anonymous}
-                        onChange={(e) => setNewPoll({ ...newPoll, is_anonymous: e.target.checked })}
-                        className="mr-2"
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700">Poll Type</label>
+                        <select
+                          value={newPoll.poll_type}
+                          onChange={(e) => setNewPoll({ ...newPoll, poll_type: e.target.value as 'yes_no' | 'multiple_choice' })}
+                          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                        >
+                          <option value="yes_no">Yes/No</option>
+                          <option value="multiple_choice">Multiple Choice</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700">Question</label>
+                      <textarea
+                        value={newPoll.question}
+                        onChange={(e) => setNewPoll({ ...newPoll, question: e.target.value })}
+                        rows={3}
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                        placeholder="What would you like to ask your members?"
+                        required
                       />
-                      Anonymous responses
-                    </label>
-                  </div>
+                    </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Expires (Optional)</label>
-                    <input
-                      type="datetime-local"
-                      value={newPoll.expires_at}
-                      onChange={(e) => setNewPoll({ ...newPoll, expires_at: e.target.value })}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                    />
-                  </div>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="bg-blue-600 text-white py-2 px-6 rounded-md hover:bg-blue-700 disabled:opacity-50"
-                >
-                  {loading ? 'Creating...' : 'Create Poll'}
-                </button>
-              </form>
-            </div>
-          )}
-
-          <div className="p-6">
-            {polls.length === 0 ? (
-              <p className="text-gray-500 text-center py-8">No polls yet. Create your first poll to get member feedback!</p>
-            ) : (
-              <div className="space-y-4">
-                {polls.map((poll) => (
-                  <div key={poll.id} className="border rounded-lg p-4 hover:shadow-sm transition-shadow">
-                    <div className="flex justify-between items-start mb-3">
-                      <div className="flex-1">
-                        <h3 className="font-semibold text-lg">{poll.title}</h3>
-                        <p className="text-gray-600 mt-1">{poll.question}</p>
-                        <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
-                          <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                            poll.status === 'active' ? 'bg-green-100 text-green-800' :
-                            poll.status === 'closed' ? 'bg-gray-100 text-gray-800' :
-                            'bg-yellow-100 text-yellow-800'
-                          }`}>
-                            {poll.status}
-                          </span>
-                          <span>{poll.poll_type === 'yes_no' ? 'Yes/No' : 'Multiple Choice'}</span>
-                          {poll.is_anonymous && <span>Anonymous</span>}
-                          <span>{poll.total_responses} responses</span>
-                        </div>
+                    {newPoll.poll_type === 'multiple_choice' && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700">Options</label>
+                        {newPoll.options.map((option, index) => (
+                          <div key={index} className="flex gap-2 mt-2">
+                            <input
+                              type="text"
+                              value={option}
+                              onChange={(e) => {
+                                const newOptions = [...newPoll.options]
+                                newOptions[index] = e.target.value
+                                setNewPoll({ ...newPoll, options: newOptions })
+                              }}
+                              className="flex-1 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                              placeholder={`Option ${index + 1}`}
+                            />
+                            {index > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const newOptions = newPoll.options.filter((_, i) => i !== index)
+                                  setNewPoll({ ...newPoll, options: newOptions })
+                                }}
+                                className="text-red-600 hover:text-red-800"
+                              >
+                                Remove
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => setNewPoll({ ...newPoll, options: [...newPoll.options, ''] })}
+                          className="mt-2 text-blue-600 hover:text-blue-800 text-sm"
+                        >
+                          + Add Option
+                        </button>
                       </div>
-                      
-                      <div className="flex gap-2">
-                        {poll.status === 'draft' && (
-                          <button
-                            onClick={() => updatePollStatus(poll.id, 'active')}
-                            className="text-green-600 hover:text-green-800 font-medium cursor-pointer text-sm"
-                          >
-                            Activate
-                          </button>
-                        )}
-                        {poll.status === 'active' && (
-                          <>
+                    )}
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="flex items-center">
+                          <input
+                            type="checkbox"
+                            checked={newPoll.is_anonymous}
+                            onChange={(e) => setNewPoll({ ...newPoll, is_anonymous: e.target.checked })}
+                            className="mr-2"
+                          />
+                          Anonymous responses
+                        </label>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700">Expires (Optional)</label>
+                        <input
+                          type="datetime-local"
+                          value={newPoll.expires_at}
+                          onChange={(e) => setNewPoll({ ...newPoll, expires_at: e.target.value })}
+                          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                        />
+                      </div>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="bg-blue-600 text-white py-2 px-6 rounded-md hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {loading ? 'Creating...' : 'Create Poll'}
+                    </button>
+                  </form>
+                </div>
+              )}
+
+              <div className="p-6">
+                {polls.length === 0 ? (
+                  <p className="text-gray-500 text-center py-8">No polls yet. Create your first poll to get member feedback!</p>
+                ) : (
+                  <div className="space-y-4">
+                    {polls.map((poll) => (
+                      <div key={poll.id} className="border rounded-lg p-4 hover:shadow-sm transition-shadow relative">
+                        {/* Close X in top right corner */}
+                        <button
+                          onClick={() => setPollToClose(poll)}
+                          className="absolute top-2 right-2 text-gray-400 hover:text-red-500 text-lg font-bold w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-100"
+                          title="Close poll"
+                        >
+                          ×
+                        </button>
+                        
+                        <div className="flex justify-between items-start mb-3">
+                          <div className="flex-1 pr-8">
+                            <h3 className="font-semibold text-lg">{poll.title}</h3>
+                            <p className="text-gray-600 mt-1">{poll.question}</p>
+                            <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
+                              <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                                poll.status === 'active' ? 'bg-green-100 text-green-800' :
+                                poll.status === 'closed' ? 'bg-gray-100 text-gray-800' :
+                                'bg-yellow-100 text-yellow-800'
+                              }`}>
+                                {poll.status}
+                              </span>
+                              <span>{poll.poll_type === 'yes_no' ? 'Yes/No' : 'Multiple Choice'}</span>
+                              {poll.is_anonymous && <span>Anonymous</span>}
+                              <span>{poll.total_responses} responses</span>
+                            </div>
+                          </div>
+                          
+                          <div className="flex gap-2">
                             <button
                               onClick={() => sendPollEmails(poll.id)}
                               className="text-purple-600 hover:text-purple-800 font-medium cursor-pointer text-sm"
@@ -1109,36 +1151,32 @@ const updatePollResponse = async (responseId: string, newResponse: string) => {
                               Email Members
                             </button>
                             <button
-                              onClick={() => updatePollStatus(poll.id, 'closed')}
-                              className="text-red-600 hover:text-red-800 font-medium cursor-pointer text-sm"
+                              onClick={() => {
+                                setViewingPoll(poll)
+                                loadPollResponses(poll.id)
+                              }}
+                              className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
                             >
-                              Close
+                              View Results →
                             </button>
-                          </>
-                        )}
-                        <button
-                          onClick={() => {
-                            setViewingPoll(poll)
-                            loadPollResponses(poll.id)
-                          }}
-                          className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
-                        >
-                          View Results →
-                        </button>
+                          </div>
+                        </div>
+                        
+                        {/* Last emailed status */}
+                        <div className="mt-4 pt-3 border-t border-gray-200 text-right">
+                          <span className="text-xs text-gray-500">
+                            {poll.last_emailed_at 
+                              ? `Last emailed: ${new Date(poll.last_emailed_at).toLocaleDateString()}`
+                              : 'Never emailed'
+                            }
+                          </span>
+                        </div>
                       </div>
-                      
-
-                      
-                    </div>
-                    
+                    ))}
                   </div>
-                  
-                ))}
+                )}
               </div>
-            )}
-          </div>
-        </div>
-        
+            </div>
 
             {showMemberForm && (
               <div className="p-6 border-b bg-gray-50">
@@ -1239,7 +1277,6 @@ const updatePollResponse = async (responseId: string, newResponse: string) => {
                 </form>
               </div>
             )}
-
 
           </div>
         </div>
@@ -1500,6 +1537,7 @@ const updatePollResponse = async (responseId: string, newResponse: string) => {
                   onClick={() => {
                     setViewingPoll(null)
                     setPollResponses([])
+                    setShowAllResponses(false)
                   }}
                   className="text-gray-400 hover:text-gray-600"
                 >
@@ -1557,7 +1595,6 @@ const updatePollResponse = async (responseId: string, newResponse: string) => {
                             }) || []}
                           </>
                         )}
-                        {/* Participation rate */}
                         <div className="mt-3 pt-3 border-t border-gray-200">
                           <div className="flex items-center gap-3">
                             <span className="w-24 text-sm font-medium text-gray-700">Participation:</span>
@@ -1589,13 +1626,22 @@ const updatePollResponse = async (responseId: string, newResponse: string) => {
                   const actualVotes = pollResponses.filter(r => r.response && r.response.trim() !== '')
                   const pendingVotes = pollResponses.filter(r => !r.response || r.response.trim() === '')
                   
+                  const sortedVotes = actualVotes.sort((a, b) => {
+                    if (a.response === b.response) {
+                      return a.member_name.localeCompare(b.member_name)
+                    }
+                    return a.response.localeCompare(b.response)
+                  })
+
+                  const sortedPending = pendingVotes.sort((a, b) => a.member_name.localeCompare(b.member_name))
+                  
                   return (
                     <>
                       {actualVotes.length === 0 ? (
                         <p className="text-gray-500 text-center py-8">No responses yet.</p>
                       ) : (
-                        <div className="space-y-3 mb-6">
-                          {actualVotes.map((response) => (
+                        <div className="space-y-3">
+                          {sortedVotes.map((response) => (
                             <div key={response.id} className="border rounded-lg p-4">
                               <div className="flex justify-between items-start">
                                 <div className="flex-1">
@@ -1633,19 +1679,58 @@ const updatePollResponse = async (responseId: string, newResponse: string) => {
                         </div>
                       )}
                       
-                      {/* Show pending members if not anonymous */}
                       {!viewingPoll.is_anonymous && pendingVotes.length > 0 && (
-                        <div className="mt-6 p-4 bg-yellow-50 rounded-lg">
-                          <h5 className="font-medium text-yellow-800 mb-2">
-                            Members who haven't voted yet ({pendingVotes.length}):
-                          </h5>
-                          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                            {pendingVotes.map((pending) => (
-                              <div key={pending.id} className="text-sm text-yellow-700">
-                                {pending.member_name}
+                        <div className="mt-6">
+                          {!showAllResponses ? (
+                            <div className="text-center">
+                              <button
+                                onClick={() => setShowAllResponses(true)}
+                                className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                              >
+                                Show all members ({pendingVotes.length} haven't responded)
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="flex justify-between items-center mb-4">
+                                <h5 className="font-medium text-gray-700">
+                                  Members who haven't responded ({pendingVotes.length}):
+                                </h5>
+                                <button
+                                  onClick={() => setShowAllResponses(false)}
+                                  className="text-gray-600 hover:text-gray-800 text-sm"
+                                >
+                                  Hide unresponded
+                                </button>
                               </div>
-                            ))}
-                          </div>
+                              <div className="space-y-3">
+                                {sortedPending.map((pending) => (
+                                  <div key={pending.id} className="border border-yellow-200 rounded-lg p-4 bg-yellow-50">
+                                    <div className="flex justify-between items-start">
+                                      <div className="flex-1">
+                                        <div className="flex items-center gap-3 mb-1">
+                                          <span className="font-medium">{pending.member_name}</span>
+                                          <span className="px-2 py-1 text-sm font-medium rounded bg-yellow-100 text-yellow-800">
+                                            No response
+                                          </span>
+                                        </div>
+                                        <div className="text-xs text-gray-500">
+                                          Poll sent but not yet responded
+                                        </div>
+                                      </div>
+                                      
+                                      <button
+                                        onClick={() => setEditingResponse(pending)}
+                                        className="text-blue-600 hover:text-blue-800 text-sm font-medium cursor-pointer"
+                                      >
+                                        Record Response
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </>
+                          )}
                         </div>
                       )}
                     </>
@@ -1655,14 +1740,19 @@ const updatePollResponse = async (responseId: string, newResponse: string) => {
             </div>
           </div>
         )}
-        
+
         {/* Edit Poll Response Modal */}
         {editingResponse && viewingPoll && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg p-6 w-full max-w-md">
-              <h3 className="text-lg font-semibold mb-4">Edit Response</h3>
+              <h3 className="text-lg font-semibold mb-4">
+                {editingResponse.response && editingResponse.response.trim() !== '' ? 'Edit Response' : 'Record Response'}
+              </h3>
               <p className="text-sm text-gray-600 mb-4">
-                Editing response from <strong>{editingResponse.member_name}</strong>
+                {editingResponse.response && editingResponse.response.trim() !== '' 
+                  ? `Editing response from ${editingResponse.member_name}`
+                  : `Recording response for ${editingResponse.member_name}`
+                }
               </p>
               
               <form onSubmit={(e) => {
@@ -1673,7 +1763,7 @@ const updatePollResponse = async (responseId: string, newResponse: string) => {
               }} className="space-y-4">
                 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">New Response</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Response</label>
                   {viewingPoll.poll_type === 'yes_no' ? (
                     <div className="space-y-2">
                       <label className="flex items-center">
@@ -1683,6 +1773,7 @@ const updatePollResponse = async (responseId: string, newResponse: string) => {
                           value="Yes"
                           defaultChecked={editingResponse.response === 'Yes'}
                           className="mr-2"
+                          required
                         />
                         Yes
                       </label>
@@ -1707,6 +1798,7 @@ const updatePollResponse = async (responseId: string, newResponse: string) => {
                             value={option}
                             defaultChecked={editingResponse.response === option}
                             className="mr-2"
+                            required
                           />
                           {option}
                         </label>
@@ -1728,10 +1820,42 @@ const updatePollResponse = async (responseId: string, newResponse: string) => {
                     disabled={loading}
                     className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
                   >
-                    {loading ? 'Saving...' : 'Save Changes'}
+                    {loading ? 'Saving...' : 'Save Response'}
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+
+        {/* Close Poll Confirmation Modal */}
+        {pollToClose && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md">
+              <h3 className="text-lg font-semibold mb-4">Close Poll</h3>
+              <p className="text-gray-600 mb-6">
+                Are you sure you want to close <strong>"{pollToClose.title}"</strong>? 
+                This will remove it from the dashboard and prevent further responses.
+              </p>
+              
+              <div className="flex justify-end space-x-3">
+                <button
+                  onClick={() => setPollToClose(null)}
+                  className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    updatePollStatus(pollToClose.id, 'closed')
+                    setPollToClose(null)
+                  }}
+                  disabled={loading}
+                  className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
+                >
+                  {loading ? 'Closing...' : 'Close Poll'}
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -1767,4 +1891,5 @@ const updatePollResponse = async (responseId: string, newResponse: string) => {
       </div>
     </div>
   </>
-)}
+)
+}

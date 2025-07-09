@@ -42,12 +42,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Tenant not found' }, { status: 404 })
     }
 
-    // Get all members
+    // Get all members (no role filtering for polls)
     const { data: members, error: membersError } = await supabase
       .from('user_profiles')
       .select('email, first_name, last_name')
       .eq('tenant_id', tenantId)
-      .eq('role', 'member')
+      // Removed role filter - polls go to everyone
 
     if (membersError) {
       return NextResponse.json({ error: 'Failed to fetch members' }, { status: 500 })
@@ -64,6 +64,7 @@ export async function POST(request: NextRequest) {
     const failedEmails = []
 
     // Send emails to all members with rate limiting
+    // Send emails to all members with rate limiting
     for (const member of members) {
       try {
         const voteToken = crypto.randomUUID()
@@ -73,48 +74,40 @@ export async function POST(request: NextRequest) {
         let voteButtons = ''
 
         if (poll.poll_type === 'yes_no') {
-  voteButtons = `
-    <div style="text-align: center; margin: 30px 0;">
-      <a href="${baseUrl}/vote/${voteToken}?response=Yes" 
-         style="background-color: #22c55e; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold; margin: 0 10px; display: inline-block;">
-        YES
-      </a>
-      <a href="${baseUrl}/vote/${voteToken}?response=No" 
-         style="background-color: #ef4444; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold; margin: 0 10px; display: inline-block;">
-        NO
-      </a>
-    </div>
-  `
-} else {
-  voteButtons = '<div style="text-align: center; margin: 30px 0;">'
-  poll.options?.forEach((option: string) => {
-    voteButtons += `
-      <a href="${baseUrl}/vote/${voteToken}?response=${encodeURIComponent(option)}" 
-         style="background-color: #3b82f6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold; margin: 5px; display: inline-block;">
-        ${option}
-      </a>
-    `
-  })
-  voteButtons += '</div>'
-}
+          voteButtons = `
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${baseUrl}/vote/${voteToken}?response=Yes" 
+                 style="background-color: #22c55e; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold; margin: 0 10px; display: inline-block;">
+                YES
+              </a>
+              <a href="${baseUrl}/vote/${voteToken}?response=No" 
+                 style="background-color: #ef4444; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold; margin: 0 10px; display: inline-block;">
+                NO
+              </a>
+            </div>
+          `
+        } else {
+          voteButtons = '<div style="text-align: center; margin: 30px 0;">'
+          poll.options?.forEach((option: string) => {
+            voteButtons += `
+              <a href="${baseUrl}/vote/${voteToken}?response=${encodeURIComponent(option)}" 
+                 style="background-color: #3b82f6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold; margin: 5px; display: inline-block;">
+                ${option}
+              </a>
+            `
+          })
+          voteButtons += '</div>'
+        }
 
-        // Store the vote token (upsert to handle duplicates)
+       // Update existing poll response record with vote token
         const { error: insertError } = await supabase
           .from('poll_responses')
-          .upsert({
-            poll_id: pollId,
-            tenant_id: tenantId,
-            member_email: member.email,
-            member_name: `${member.first_name} ${member.last_name}`,
-            response: '',
-            response_token: voteToken,
-            responded_at: null
-          }, {
-            onConflict: 'poll_id, member_email'
-          })
+          .update({ response_token: voteToken })
+          .eq('poll_id', pollId)
+          .eq('member_email', member.email)
 
         if (insertError) {
-          console.error('Error upserting vote token for', member.email, ':', insertError)
+          console.error('Error updating vote token for', member.email, ':', insertError)
           failed++
           failedEmails.push(member.email)
           continue
@@ -173,8 +166,19 @@ export async function POST(request: NextRequest) {
           await delay(1100)
         }
       }
+    } // End of for loop - MOVE THE CODE BELOW OUTSIDE THE LOOP
+
+    // Update the poll's last_emailed_at timestamp (OUTSIDE the loop)
+    const { error: updateError } = await supabase
+      .from('polls')
+      .update({ last_emailed_at: new Date().toISOString() })
+      .eq('id', pollId)
+
+    if (updateError) {
+      console.warn('Failed to update last_emailed_at:', updateError)
     }
 
+    // Return statement (OUTSIDE the loop)
     return NextResponse.json({
       message: `Poll emails sent! ${successful} successful, ${failed} failed.`,
       sent: successful,
