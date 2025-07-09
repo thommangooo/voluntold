@@ -62,6 +62,30 @@ interface Member {
   created_at: string
 }
 
+interface Poll {
+  id: string
+  title: string
+  question: string
+  poll_type: 'yes_no' | 'multiple_choice'
+  options: string[] | null
+  is_anonymous: boolean
+  status: 'draft' | 'active' | 'closed'
+  total_responses: number
+  created_at: string
+  expires_at: string | null
+}
+
+interface PollResponse {
+  id: string
+  poll_id: string
+  member_email: string
+  member_name: string
+  response: string
+  responded_at: string
+  updated_by: string | null
+  updated_at: string | null
+}
+
 export default function TenantDashboard() {
   const router = useRouter()
   const [tenantInfo, setTenantInfo] = useState<TenantInfo | null>(null)
@@ -82,6 +106,22 @@ export default function TenantDashboard() {
     goals: ''  // Add this line
   })
 
+    // Polling state
+  const [polls, setPolls] = useState<Poll[]>([])
+  const [showPollForm, setShowPollForm] = useState(false)
+  const [viewingPoll, setViewingPoll] = useState<Poll | null>(null)
+  const [pollResponses, setPollResponses] = useState<PollResponse[]>([])
+  const [editingResponse, setEditingResponse] = useState<PollResponse | null>(null)
+
+  const [newPoll, setNewPoll] = useState({
+    title: '',
+    question: '',
+    poll_type: 'yes_no' as 'yes_no' | 'multiple_choice',
+    options: [''],
+    is_anonymous: false,
+    expires_at: ''
+  })
+
 
   const [newMember, setNewMember] = useState({
     email: '',
@@ -92,6 +132,22 @@ export default function TenantDashboard() {
     address: '',
     role: 'member'
   })
+
+    // Polling functions
+const loadPolls = async (tenantId: string) => {
+  try {
+    const { data, error } = await supabase
+      .from('polls')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .order('created_at', { ascending: false })
+
+    if (error) throw error
+    setPolls(data || [])
+  } catch (error) {
+    setMessage(`Error loading polls: ${(error as Error).message}`)
+  }
+}
 
   const loadTenantData = useCallback(async () => {
     try {
@@ -130,6 +186,7 @@ export default function TenantDashboard() {
       // Load projects and members
       await loadProjects(tenant.id)
       await loadMembers(tenant.id)
+      await loadPolls(tenant.id) 
 
     } catch (error) {
       setMessage(`Error: ${(error as Error).message}`)
@@ -445,6 +502,168 @@ console.log('Members array:', members, 'Length:', members.length)
     )
   }
 
+  const sendPollEmails = async (pollId: string) => {
+  if (!tenantInfo) return
+
+  setLoading(true)
+  setMessage('Sending emails... This may take a moment for multiple members.')
+
+  try {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.user) throw new Error('Not authenticated')
+
+    const response = await fetch('/api/send-poll-emails', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        pollId: pollId,
+        tenantId: tenantInfo.id,
+        userId: session.user.id
+      })
+    })
+
+    const result = await response.json()
+
+    if (!response.ok) {
+      throw new Error(result.error || 'Failed to send emails')
+    }
+
+    setMessage(result.message)
+    if (result.failedEmails && result.failedEmails.length > 0) {
+      console.log('Failed emails:', result.failedEmails)
+    }
+    loadPolls(tenantInfo.id)
+  } catch (error) {
+    setMessage(`Error: ${(error as Error).message}`)
+  } finally {
+    setLoading(false)
+  }
+}
+
+
+const createPoll = async (e: React.FormEvent) => {
+  e.preventDefault()
+  if (!tenantInfo) return
+
+  setLoading(true)
+  setMessage('')
+
+  try {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.user) throw new Error('Not authenticated')
+
+    // Prepare options for multiple choice
+    const pollOptions = newPoll.poll_type === 'multiple_choice' 
+      ? newPoll.options.filter(opt => opt.trim() !== '')
+      : null
+
+    const { error } = await supabase
+      .from('polls')
+      .insert([
+        {
+          tenant_id: tenantInfo.id,
+          title: newPoll.title,
+          question: newPoll.question,
+          poll_type: newPoll.poll_type,
+          options: pollOptions,
+          is_anonymous: newPoll.is_anonymous,
+          expires_at: newPoll.expires_at || null,
+          created_by: session.user.id,
+          status: 'draft'
+        }
+      ])
+
+    if (error) throw error
+
+    setMessage(`Poll "${newPoll.title}" created successfully!`)
+    setNewPoll({
+      title: '',
+      question: '',
+      poll_type: 'yes_no',
+      options: [''],
+      is_anonymous: false,
+      expires_at: ''
+    })
+    setShowPollForm(false)
+    loadPolls(tenantInfo.id)
+  } catch (error) {
+    setMessage(`Error: ${(error as Error).message}`)
+  } finally {
+    setLoading(false)
+  }
+}
+
+const loadPollResponses = async (pollId: string) => {
+  try {
+    const { data, error } = await supabase
+      .from('poll_responses')
+      .select('*')
+      .eq('poll_id', pollId)
+      .order('responded_at', { ascending: false })
+
+    if (error) throw error
+    setPollResponses(data || [])
+  } catch (error) {
+    setMessage(`Error loading poll responses: ${(error as Error).message}`)
+  }
+}
+
+const updatePollStatus = async (pollId: string, newStatus: 'active' | 'closed') => {
+  setLoading(true)
+  try {
+    const { error } = await supabase
+      .from('polls')
+      .update({ status: newStatus })
+      .eq('id', pollId)
+
+    if (error) throw error
+
+    setMessage(`Poll ${newStatus === 'active' ? 'activated' : 'closed'} successfully!`)
+    if (tenantInfo) {
+      loadPolls(tenantInfo.id)
+    }
+  } catch (error) {
+    setMessage(`Error: ${(error as Error).message}`)
+  } finally {
+    setLoading(false)
+  }
+}
+
+const updatePollResponse = async (responseId: string, newResponse: string) => {
+  if (!editingResponse) return
+
+  setLoading(true)
+  setMessage('')
+
+  try {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.user) throw new Error('Not authenticated')
+
+    const { error } = await supabase
+      .from('poll_responses')
+      .update({
+        response: newResponse,
+        updated_by: session.user.id,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', responseId)
+
+    if (error) throw error
+
+    setMessage('Response updated successfully!')
+    setEditingResponse(null)
+    if (viewingPoll) {
+      loadPollResponses(viewingPoll.id)
+    }
+  } catch (error) {
+    setMessage(`Error: ${(error as Error).message}`)
+  } finally {
+    setLoading(false)
+  }
+}
+
   if (!tenantInfo) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -614,20 +833,7 @@ console.log('Members array:', members, 'Length:', members.length)
                               </div>
                             )}
                           </div>
-                      {/* Total Hours Display */}
-                      <div className="mb-4 p-3 bg-blue-50 rounded-lg">
-                        <div className="flex justify-between items-center">
-                          <span className="text-sm font-medium text-blue-900">Total Volunteer Hours</span>
-                          <span className="text-lg font-bold text-blue-900">
-                            {project.total_hours?.toFixed(1) || '0.0'} hrs
-                          </span>
-                        </div>
-                        {project.total_hours && project.total_hours > 0 && (
-                          <div className="text-xs text-blue-700 mt-1">
-                            From {project.opportunities?.length || 0} opportunities + additional hours
-                          </div>
-                        )}
-                      </div>
+                      
 
                       <div className="flex justify-end gap-2">
                         <button
@@ -662,7 +868,277 @@ console.log('Members array:', members, 'Length:', members.length)
                   {showMemberForm ? 'Hide Form' : 'Add Member'}
                 </button>
               </div>
+                          <div className="p-6">
+              {members.length === 0 ? (
+                <p className="text-gray-500 text-center py-8">No members yet. Add your first team member!</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Name
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Email
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Phone
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Joined
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Actions
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {members.map((member) => (
+                        <tr key={member.id}>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm font-medium text-gray-900">
+                              {member.first_name} {member.last_name}
+                            </div>
+                            <div className="text-sm text-gray-500">{member.role}</div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm text-gray-900">{member.email}</div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm text-gray-900">
+                              {member.phone_number || '—'}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {new Date(member.created_at).toLocaleDateString()}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                            <button
+                              onClick={() => setEditingMember(member)}
+                              className="text-blue-600 hover:text-blue-800 mr-3 cursor-pointer"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => setDeletingMember(member)}
+                              className="text-red-600 hover:text-red-800 cursor-pointer"
+                            >
+                              Delete
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
+            </div>
+
+                    {/* Polls Section - ADD THIS ENTIRE SECTION */}
+        <div className="bg-white rounded-lg shadow mt-8">
+          <div className="px-6 py-4 border-b">
+            <div className="flex justify-between items-center">
+              <h2 className="text-xl font-semibold">Polls ({polls.length})</h2>
+              <button
+                onClick={() => setShowPollForm(!showPollForm)}
+                className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
+              >
+                {showPollForm ? 'Hide Form' : 'Create Poll'}
+              </button>
+            </div>
+          </div>
+
+          {showPollForm && (
+            <div className="p-6 border-b bg-gray-50">
+              <form onSubmit={createPoll} className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Poll Title</label>
+                    <input
+                      type="text"
+                      value={newPoll.title}
+                      onChange={(e) => setNewPoll({ ...newPoll, title: e.target.value })}
+                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                      placeholder="e.g., Annual Picnic Location"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Poll Type</label>
+                    <select
+                      value={newPoll.poll_type}
+                      onChange={(e) => setNewPoll({ ...newPoll, poll_type: e.target.value as 'yes_no' | 'multiple_choice' })}
+                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                    >
+                      <option value="yes_no">Yes/No</option>
+                      <option value="multiple_choice">Multiple Choice</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Question</label>
+                  <textarea
+                    value={newPoll.question}
+                    onChange={(e) => setNewPoll({ ...newPoll, question: e.target.value })}
+                    rows={3}
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                    placeholder="What would you like to ask your members?"
+                    required
+                  />
+                </div>
+
+                {newPoll.poll_type === 'multiple_choice' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Options</label>
+                    {newPoll.options.map((option, index) => (
+                      <div key={index} className="flex gap-2 mt-2">
+                        <input
+                          type="text"
+                          value={option}
+                          onChange={(e) => {
+                            const newOptions = [...newPoll.options]
+                            newOptions[index] = e.target.value
+                            setNewPoll({ ...newPoll, options: newOptions })
+                          }}
+                          className="flex-1 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                          placeholder={`Option ${index + 1}`}
+                        />
+                        {index > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const newOptions = newPoll.options.filter((_, i) => i !== index)
+                              setNewPoll({ ...newPoll, options: newOptions })
+                            }}
+                            className="text-red-600 hover:text-red-800"
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => setNewPoll({ ...newPoll, options: [...newPoll.options, ''] })}
+                      className="mt-2 text-blue-600 hover:text-blue-800 text-sm"
+                    >
+                      + Add Option
+                    </button>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={newPoll.is_anonymous}
+                        onChange={(e) => setNewPoll({ ...newPoll, is_anonymous: e.target.checked })}
+                        className="mr-2"
+                      />
+                      Anonymous responses
+                    </label>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Expires (Optional)</label>
+                    <input
+                      type="datetime-local"
+                      value={newPoll.expires_at}
+                      onChange={(e) => setNewPoll({ ...newPoll, expires_at: e.target.value })}
+                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="bg-blue-600 text-white py-2 px-6 rounded-md hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {loading ? 'Creating...' : 'Create Poll'}
+                </button>
+              </form>
+            </div>
+          )}
+
+          <div className="p-6">
+            {polls.length === 0 ? (
+              <p className="text-gray-500 text-center py-8">No polls yet. Create your first poll to get member feedback!</p>
+            ) : (
+              <div className="space-y-4">
+                {polls.map((poll) => (
+                  <div key={poll.id} className="border rounded-lg p-4 hover:shadow-sm transition-shadow">
+                    <div className="flex justify-between items-start mb-3">
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-lg">{poll.title}</h3>
+                        <p className="text-gray-600 mt-1">{poll.question}</p>
+                        <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
+                          <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                            poll.status === 'active' ? 'bg-green-100 text-green-800' :
+                            poll.status === 'closed' ? 'bg-gray-100 text-gray-800' :
+                            'bg-yellow-100 text-yellow-800'
+                          }`}>
+                            {poll.status}
+                          </span>
+                          <span>{poll.poll_type === 'yes_no' ? 'Yes/No' : 'Multiple Choice'}</span>
+                          {poll.is_anonymous && <span>Anonymous</span>}
+                          <span>{poll.total_responses} responses</span>
+                        </div>
+                      </div>
+                      
+                      <div className="flex gap-2">
+                        {poll.status === 'draft' && (
+                          <button
+                            onClick={() => updatePollStatus(poll.id, 'active')}
+                            className="text-green-600 hover:text-green-800 font-medium cursor-pointer text-sm"
+                          >
+                            Activate
+                          </button>
+                        )}
+                        {poll.status === 'active' && (
+                          <>
+                            <button
+                              onClick={() => sendPollEmails(poll.id)}
+                              className="text-purple-600 hover:text-purple-800 font-medium cursor-pointer text-sm"
+                            >
+                              Email Members
+                            </button>
+                            <button
+                              onClick={() => updatePollStatus(poll.id, 'closed')}
+                              className="text-red-600 hover:text-red-800 font-medium cursor-pointer text-sm"
+                            >
+                              Close
+                            </button>
+                          </>
+                        )}
+                        <button
+                          onClick={() => {
+                            setViewingPoll(poll)
+                            loadPollResponses(poll.id)
+                          }}
+                          className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
+                        >
+                          View Results →
+                        </button>
+                      </div>
+                      
+
+                      
+                    </div>
+                    
+                  </div>
+                  
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+        
 
             {showMemberForm && (
               <div className="p-6 border-b bg-gray-50">
@@ -764,72 +1240,7 @@ console.log('Members array:', members, 'Length:', members.length)
               </div>
             )}
 
-            <div className="p-6">
-              {members.length === 0 ? (
-                <p className="text-gray-500 text-center py-8">No members yet. Add your first team member!</p>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Name
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Email
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Phone
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Joined
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Actions
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {members.map((member) => (
-                        <tr key={member.id}>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm font-medium text-gray-900">
-                              {member.first_name} {member.last_name}
-                            </div>
-                            <div className="text-sm text-gray-500">{member.role}</div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-900">{member.email}</div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-900">
-                              {member.phone_number || '—'}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {new Date(member.created_at).toLocaleDateString()}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                            <button
-                              onClick={() => setEditingMember(member)}
-                              className="text-blue-600 hover:text-blue-800 mr-3 cursor-pointer"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              onClick={() => setDeletingMember(member)}
-                              className="text-red-600 hover:text-red-800 cursor-pointer"
-                            >
-                              Delete
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
+
           </div>
         </div>
 
@@ -1048,6 +1459,266 @@ console.log('Members array:', members, 'Length:', members.length)
                   <button
                     type="button"
                     onClick={() => setEditingProject(null)}
+                    className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {loading ? 'Saving...' : 'Save Changes'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Poll Results Modal */}
+        {viewingPoll && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-screen overflow-y-auto">
+              <div className="flex justify-between items-start mb-6">
+                <div>
+                  <h3 className="text-lg font-semibold">{viewingPoll.title}</h3>
+                  <p className="text-gray-600 mt-1">{viewingPoll.question}</p>
+                  <div className="flex items-center gap-4 mt-2 text-sm">
+                    <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                      viewingPoll.status === 'active' ? 'bg-green-100 text-green-800' :
+                      viewingPoll.status === 'closed' ? 'bg-gray-100 text-gray-800' :
+                      'bg-yellow-100 text-yellow-800'
+                    }`}>
+                      {viewingPoll.status}
+                    </span>
+                    <span className="text-gray-500">{viewingPoll.poll_type === 'yes_no' ? 'Yes/No' : 'Multiple Choice'}</span>
+                    {viewingPoll.is_anonymous && <span className="text-gray-500">Anonymous</span>}
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setViewingPoll(null)
+                    setPollResponses([])
+                  }}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Response Summary */}
+              {(() => {
+                const actualVotes = pollResponses.filter(r => r.response && r.response.trim() !== '')
+                const totalSent = pollResponses.length
+                return (
+                  <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+                    <h4 className="font-medium mb-3">
+                      Response Summary ({actualVotes.length} of {totalSent} members voted)
+                    </h4>
+                    {actualVotes.length > 0 ? (
+                      <div className="space-y-2">
+                        {viewingPoll.poll_type === 'yes_no' ? (
+                          <>
+                            {['Yes', 'No'].map((option) => {
+                              const count = actualVotes.filter(r => r.response === option).length
+                              const percentage = actualVotes.length > 0 ? (count / actualVotes.length * 100).toFixed(1) : 0
+                              return (
+                                <div key={option} className="flex items-center gap-3">
+                                  <span className="w-12 text-sm font-medium">{option}:</span>
+                                  <div className="flex-1 bg-gray-200 rounded-full h-3">
+                                    <div 
+                                      className={`h-3 rounded-full ${option === 'Yes' ? 'bg-green-500' : 'bg-red-500'}`}
+                                      style={{ width: `${percentage}%` }}
+                                    ></div>
+                                  </div>
+                                  <span className="text-sm text-gray-600">{count} ({percentage}%)</span>
+                                </div>
+                              )
+                            })}
+                          </>
+                        ) : (
+                          <>
+                            {viewingPoll.options?.map((option) => {
+                              const count = actualVotes.filter(r => r.response === option).length
+                              const percentage = actualVotes.length > 0 ? (count / actualVotes.length * 100).toFixed(1) : 0
+                              return (
+                                <div key={option} className="flex items-center gap-3">
+                                  <span className="w-24 text-sm font-medium truncate">{option}:</span>
+                                  <div className="flex-1 bg-gray-200 rounded-full h-3">
+                                    <div 
+                                      className="h-3 rounded-full bg-blue-500"
+                                      style={{ width: `${percentage}%` }}
+                                    ></div>
+                                  </div>
+                                  <span className="text-sm text-gray-600">{count} ({percentage}%)</span>
+                                </div>
+                              )
+                            }) || []}
+                          </>
+                        )}
+                        {/* Participation rate */}
+                        <div className="mt-3 pt-3 border-t border-gray-200">
+                          <div className="flex items-center gap-3">
+                            <span className="w-24 text-sm font-medium text-gray-700">Participation:</span>
+                            <div className="flex-1 bg-gray-200 rounded-full h-3">
+                              <div 
+                                className="h-3 rounded-full bg-purple-500"
+                                style={{ width: `${totalSent > 0 ? (actualVotes.length / totalSent * 100).toFixed(1) : 0}%` }}
+                              ></div>
+                            </div>
+                            <span className="text-sm text-gray-600">
+                              {totalSent > 0 ? (actualVotes.length / totalSent * 100).toFixed(1) : 0}% of members
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-gray-500 text-center py-4">No votes received yet.</p>
+                    )}
+                  </div>
+                )
+              })()}
+
+              {/* Individual Responses */}
+              <div>
+                <h4 className="font-medium mb-3">
+                  {viewingPoll.is_anonymous ? 'Anonymous Responses' : 'Member Responses'}
+                </h4>
+                {(() => {
+                  const actualVotes = pollResponses.filter(r => r.response && r.response.trim() !== '')
+                  const pendingVotes = pollResponses.filter(r => !r.response || r.response.trim() === '')
+                  
+                  return (
+                    <>
+                      {actualVotes.length === 0 ? (
+                        <p className="text-gray-500 text-center py-8">No responses yet.</p>
+                      ) : (
+                        <div className="space-y-3 mb-6">
+                          {actualVotes.map((response) => (
+                            <div key={response.id} className="border rounded-lg p-4">
+                              <div className="flex justify-between items-start">
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-3 mb-1">
+                                    {!viewingPoll.is_anonymous && (
+                                      <span className="font-medium">{response.member_name}</span>
+                                    )}
+                                    <span className={`px-2 py-1 text-sm font-medium rounded ${
+                                      response.response === 'Yes' ? 'bg-green-100 text-green-800' :
+                                      response.response === 'No' ? 'bg-red-100 text-red-800' :
+                                      'bg-blue-100 text-blue-800'
+                                    }`}>
+                                      {response.response}
+                                    </span>
+                                  </div>
+                                  <div className="text-xs text-gray-500">
+                                    {new Date(response.responded_at).toLocaleString()}
+                                    {response.updated_at && (
+                                      <span className="ml-2">(Edited by admin)</span>
+                                    )}
+                                  </div>
+                                </div>
+                                
+                                {!viewingPoll.is_anonymous && (
+                                  <button
+                                    onClick={() => setEditingResponse(response)}
+                                    className="text-blue-600 hover:text-blue-800 text-sm font-medium cursor-pointer"
+                                  >
+                                    Edit
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      
+                      {/* Show pending members if not anonymous */}
+                      {!viewingPoll.is_anonymous && pendingVotes.length > 0 && (
+                        <div className="mt-6 p-4 bg-yellow-50 rounded-lg">
+                          <h5 className="font-medium text-yellow-800 mb-2">
+                            Members who haven't voted yet ({pendingVotes.length}):
+                          </h5>
+                          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                            {pendingVotes.map((pending) => (
+                              <div key={pending.id} className="text-sm text-yellow-700">
+                                {pending.member_name}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )
+                })()}
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* Edit Poll Response Modal */}
+        {editingResponse && viewingPoll && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md">
+              <h3 className="text-lg font-semibold mb-4">Edit Response</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Editing response from <strong>{editingResponse.member_name}</strong>
+              </p>
+              
+              <form onSubmit={(e) => {
+                e.preventDefault()
+                const formData = new FormData(e.target as HTMLFormElement)
+                const newResponse = formData.get('response') as string
+                updatePollResponse(editingResponse.id, newResponse)
+              }} className="space-y-4">
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">New Response</label>
+                  {viewingPoll.poll_type === 'yes_no' ? (
+                    <div className="space-y-2">
+                      <label className="flex items-center">
+                        <input
+                          type="radio"
+                          name="response"
+                          value="Yes"
+                          defaultChecked={editingResponse.response === 'Yes'}
+                          className="mr-2"
+                        />
+                        Yes
+                      </label>
+                      <label className="flex items-center">
+                        <input
+                          type="radio"
+                          name="response"
+                          value="No"
+                          defaultChecked={editingResponse.response === 'No'}
+                          className="mr-2"
+                        />
+                        No
+                      </label>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {viewingPoll.options?.map((option) => (
+                        <label key={option} className="flex items-center">
+                          <input
+                            type="radio"
+                            name="response"
+                            value={option}
+                            defaultChecked={editingResponse.response === option}
+                            className="mr-2"
+                          />
+                          {option}
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                
+                <div className="flex justify-end space-x-3">
+                  <button
+                    type="button"
+                    onClick={() => setEditingResponse(null)}
                     className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
                   >
                     Cancel

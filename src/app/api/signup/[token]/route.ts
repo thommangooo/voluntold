@@ -7,7 +7,7 @@ export async function GET(
   { params }: { params: { token: string } }
 ) {
   try {
-    const token = params.token
+    const { token } = await params
 
     // Get signup token data with opportunity and project info
     const { data: tokenData, error: tokenError } = await supabase
