@@ -1,3 +1,6 @@
+// File: src/app/page.tsx
+// Version: 33 - Keep existing functionality, just redirect admin to /auth/login
+
 'use client'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -5,19 +8,13 @@ import Image from 'next/image'
 
 export default function HomePage() {
   const router = useRouter()
-  const [showAdminSignIn, setShowAdminSignIn] = useState(false)
   const [showMemberAccess, setShowMemberAccess] = useState(false)
   const [memberEmail, setMemberEmail] = useState('')
-  const [adminEmail, setAdminEmail] = useState('')
-  const [adminPassword, setAdminPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
   const [showSuccessMessage, setShowSuccessMessage] = useState(false)
   const [organizations, setOrganizations] = useState<{tenant_id: string, tenant_name: string}[]>([])
   const [showOrgSelection, setShowOrgSelection] = useState(false)
-  const [adminOrganizations, setAdminOrganizations] = useState<{tenant_id: string, tenant_name: string, role: string}[]>([])
-  const [showAdminOrgSelection, setShowAdminOrgSelection] = useState(false)
-  const [adminUserType, setAdminUserType] = useState<'tenant_admin' | 'super_admin'>('tenant_admin')
 
   const handleMemberAccess = async () => {
     if (!memberEmail.trim()) {
@@ -106,110 +103,6 @@ export default function HomePage() {
     setLoading(false)
   }
 
-  const handleAdminSignIn = async () => {
-    if (!adminEmail.trim() || !adminPassword.trim()) {
-      setMessage('Please enter both email and password')
-      return
-    }
-
-    setLoading(true)
-    setMessage('')
-
-    try {
-      const response = await fetch('/api/admin-signin', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          email: adminEmail, 
-          password: adminPassword 
-        })
-      })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        setMessage(data.error || 'Sign-in failed')
-        return
-      }
-
-      if (data.requiresOrgSelection) {
-        setAdminOrganizations(data.organizations)
-        setAdminUserType(data.userType)
-        setShowAdminOrgSelection(true)
-        setMessage('')
-      } else if (data.success) {
-        setMessage(`Welcome! Redirecting to ${data.organizationName} dashboard...`)
-        // Clear form
-        setAdminEmail('')
-        setAdminPassword('')
-        // Redirect to tenant dashboard
-        setTimeout(() => {
-          router.push(data.redirectTo)
-        }, 1500)
-      }
-
-    } catch (error) {
-      setMessage('Network error. Please try again.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const handleAdminOrgSelection = async (tenantId: string) => {
-    setLoading(true)
-    setMessage('')
-
-    try {
-      const response = await fetch('/api/admin-signin', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          email: adminEmail, 
-          password: adminPassword,
-          selectedTenantId: tenantId 
-        })
-      })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        setMessage(data.error || 'Failed to access organization')
-        return
-      }
-
-      if (data.success) {
-        setMessage(`Welcome! Redirecting to ${data.organizationName} dashboard...`)
-        setAdminEmail('')
-        setAdminPassword('')
-        setShowAdminOrgSelection(false)
-        setAdminOrganizations([])
-        // Redirect to tenant dashboard
-        setTimeout(() => {
-          router.push(data.redirectTo)
-        }, 1500)
-      }
-
-    } catch (error) {
-      setMessage('Network error. Please try again.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const resetAdminSignIn = () => {
-    setShowAdminSignIn(false)
-    setAdminEmail('')
-    setAdminPassword('')
-    setMessage('')
-    setAdminOrganizations([])
-    setShowAdminOrgSelection(false)
-    setLoading(false)
-  }
-
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -229,7 +122,7 @@ export default function HomePage() {
             </div>
             <nav className="flex space-x-6">
               <button
-                onClick={() => setShowAdminSignIn(true)}
+                onClick={() => router.push('/auth/login')}
                 className="text-blue-600 hover:text-blue-800 font-medium"
               >
                 Admin Sign In
@@ -256,12 +149,12 @@ export default function HomePage() {
         
         <div className="text-center">
           <h1 className="text-4xl font-bold text-gray-900 sm:text-5xl md:text-6xl">
-            Volunteer Management
-            <span className="text-blue-600"> Made Simple</span>
+            Keeping Busy Volunteers
+            <span className="text-blue-600"> In Sync!</span>
           </h1>
           <p className="mt-6 max-w-3xl mx-auto text-xl text-gray-600">
             Streamline your organization's volunteer coordination with our comprehensive platform. 
-            Manage projects, schedule opportunities, and keep your team connected.
+            Manage projects, sign-up sheets, voting and keep your team connected.
           </p>
           
           {/* Marketing Content Placeholder */}
@@ -275,7 +168,7 @@ export default function HomePage() {
           {/* Call to Action Buttons */}
           <div className="mt-12 flex flex-col sm:flex-row justify-center gap-4">
             <button
-              onClick={() => setShowAdminSignIn(true)}
+              onClick={() => router.push('/auth/login')}
               className="bg-white text-blue-600 border-2 border-blue-600 px-8 py-3 rounded-md hover:bg-blue-50 font-semibold text-lg transition-colors"
             >
               Organization Admin Sign In
@@ -297,8 +190,8 @@ export default function HomePage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
               </svg>
             </div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Project Management</h3>
-            <p className="text-gray-600">Organize volunteer opportunities by project with clear goals and tracking.</p>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Manage Sign Up Sheets</h3>
+            <p className="text-gray-600">Create & Manage sign-up sheets with ease. Whether it's a scheduled work shift or a one-off to-do,  volunteers can enroll with one click.  They can also change their commitments and keep the team updated.</p>
           </div>
 
           <div className="bg-white rounded-lg shadow p-6">
@@ -307,8 +200,8 @@ export default function HomePage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
               </svg>
             </div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Email Coordination</h3>
-            <p className="text-gray-600">Send professional volunteer requests with personalized signup links.</p>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Polling & Voting</h3>
+            <p className="text-gray-600">Easily keep of track of who's coming for dinner, who's bringing what, who's in favour of what motion. Polling can also be anonymous, time-bound and changeable for maximum flexibility.</p>
           </div>
 
           <div className="bg-white rounded-lg shadow p-6">
@@ -317,131 +210,11 @@ export default function HomePage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
               </svg>
             </div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Member Portal</h3>
-            <p className="text-gray-600">Give volunteers easy access to their schedules and organization information.</p>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Member Self-Care</h3>
+            <p className="text-gray-600">Members receive calendar links and reminders for every scheduled sign up.  Members can access and update their commitments.  No passwords required for ease of management.</p>
           </div>
         </div>
       </main>
-
-      {/* Admin Sign In Modal */}
-      {showAdminSignIn && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold">
-                {showAdminOrgSelection ? 'Select Organization' : 'Admin Sign In'}
-              </h3>
-              <button
-                onClick={resetAdminSignIn}
-                className="text-gray-400 hover:text-gray-600"
-                disabled={loading}
-              >
-                ✕
-              </button>
-            </div>
-            
-            {!showAdminOrgSelection ? (
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Email Address
-                  </label>
-                  <input
-                    type="email"
-                    value={adminEmail}
-                    onChange={(e) => setAdminEmail(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && !adminPassword ? document.getElementById('admin-password')?.focus() : e.key === 'Enter' && handleAdminSignIn()}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="admin@organization.com"
-                    disabled={loading}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Password
-                  </label>
-                  <input
-                    id="admin-password"
-                    type="password"
-                    value={adminPassword}
-                    onChange={(e) => setAdminPassword(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && handleAdminSignIn()}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    disabled={loading}
-                  />
-                </div>
-
-                <div className="flex justify-end space-x-3 pt-4">
-                  <button
-                    onClick={resetAdminSignIn}
-                    className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
-                    disabled={loading}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleAdminSignIn}
-                    disabled={loading || !adminEmail.trim() || !adminPassword.trim()}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    {loading ? 'Signing In...' : 'Sign In'}
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <>
-                <p className="text-gray-600 mb-4">
-                  {adminUserType === 'super_admin' 
-                    ? 'Please select which organization you\'d like to manage:' 
-                    : 'You have admin access to multiple organizations. Please select one:'
-                  }
-                </p>
-                
-                <div className="space-y-3 mb-4">
-                  {adminOrganizations.map((org) => (
-                    <button
-                      key={org.tenant_id}
-                      onClick={() => handleAdminOrgSelection(org.tenant_id)}
-                      disabled={loading}
-                      className="w-full text-left p-3 border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      <div className="flex justify-between items-center">
-                        <div className="font-medium">{org.tenant_name}</div>
-                        <div className="text-sm text-gray-500 capitalize">
-                          {org.role.replace('_', ' ')}
-                        </div>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-
-                <div className="flex justify-end space-x-3">
-                  <button
-                    onClick={() => {
-                      setShowAdminOrgSelection(false)
-                      setAdminOrganizations([])
-                    }}
-                    className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
-                    disabled={loading}
-                  >
-                    Back
-                  </button>
-                </div>
-
-                {loading && (
-                  <div className="mt-4 text-center">
-                    <div className="inline-flex items-center">
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
-                      <span className="text-sm text-gray-600">Signing in...</span>
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* Member Access Modal */}
       {showMemberAccess && (
