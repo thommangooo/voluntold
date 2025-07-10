@@ -1,3 +1,6 @@
+// File: src/app/tenant/page.tsx
+// Version: 2.0 - Three-panel layout with improved scrolling
+
 'use client'
 import Header from '../../components/Header'
 import { useState, useEffect, useCallback } from 'react'
@@ -736,10 +739,12 @@ const updatePollResponse = async (responseId: string, newResponse: string) => {
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Projects Section */}
-          <div className="bg-white rounded-lg shadow">
-            <div className="px-6 py-4 border-b">
+        {/* 3-Panel Grid Layout */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          
+          {/* Projects Panel */}
+          <div className="bg-white rounded-lg shadow flex flex-col h-[calc(100vh-300px)]">
+            <div className="px-6 py-4 border-b flex-shrink-0">
               <div className="flex justify-between items-center">
                 <h2 className="text-xl font-semibold">Projects ({projects.length})</h2>
                 <button
@@ -752,7 +757,7 @@ const updatePollResponse = async (responseId: string, newResponse: string) => {
             </div>
 
             {showProjectForm && (
-              <div className="p-6 border-b bg-gray-50">
+              <div className="p-6 border-b bg-gray-50 flex-shrink-0">
                 <form onSubmit={createProject} className="space-y-4">
                   <div>
                     <label htmlFor="projectName" className="block text-sm font-medium text-gray-700">
@@ -806,11 +811,11 @@ const updatePollResponse = async (responseId: string, newResponse: string) => {
               </div>
             )}
 
-            <div className="p-6">
+            <div className="p-6 flex-1 overflow-hidden">
               {projects.length === 0 ? (
                 <p className="text-gray-500 text-center py-8">No projects yet. Create your first project to get started!</p>
               ) : (
-                <div className="space-y-4">
+                <div className="h-full overflow-y-auto space-y-4 pr-2">
                   {projects.map((project) => (
                     <div key={project.id} className="border rounded-lg p-4 hover:shadow-sm transition-shadow relative">
                       {/* Close X in top right corner */}
@@ -830,7 +835,7 @@ const updatePollResponse = async (responseId: string, newResponse: string) => {
                       {/* Opportunities List */}
                       {project.opportunities && project.opportunities.length > 0 ? (
                         <div className="mb-4">
-                          <h4 className="text-sm font-medium text-gray-700 mb-2">Volunteer Opportunities:</h4>
+                          <h4 className="text-sm font-medium text-gray-700 mb-2">Sign-Up Sheets:</h4>
                           <div className="space-y-2">
                             {project.opportunities.map((opportunity) => (
                               <div key={opportunity.id} className="bg-gray-50 rounded p-3">
@@ -859,7 +864,7 @@ const updatePollResponse = async (responseId: string, newResponse: string) => {
                           </div>
                         </div>
                        ) : (
-                            <div className="mb-4 text-sm text-gray-500">No volunteer opportunities yet</div>
+                            <div className="mb-4 text-sm text-gray-500">No Sign-up Sheets created yet</div>
                           )}
 
                           {/* Total Hours Display */}
@@ -899,9 +904,211 @@ const updatePollResponse = async (responseId: string, newResponse: string) => {
             </div>
           </div>
 
-          {/* Members Section */}
-          <div className="bg-white rounded-lg shadow">
-            <div className="px-6 py-4 border-b">
+         
+          {/* Polls Panel */}
+          <div className="bg-white rounded-lg shadow flex flex-col h-[calc(100vh-300px)]">
+            <div className="px-6 py-4 border-b flex-shrink-0">
+              <div className="flex justify-between items-center">
+                <h2 className="text-xl font-semibold">Active Polls ({polls.length})</h2>
+                <button
+                  onClick={() => setShowPollForm(!showPollForm)}
+                  className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
+                >
+                  {showPollForm ? 'Hide Form' : 'Create Poll'}
+                </button>
+              </div>
+            </div>
+
+            {showPollForm && (
+              <div className="p-6 border-b bg-gray-50 flex-shrink-0">
+                <form onSubmit={createPoll} className="space-y-4">
+                  <div className="grid grid-cols-1 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700">Poll Title</label>
+                      <input
+                        type="text"
+                        value={newPoll.title}
+                        onChange={(e) => setNewPoll({ ...newPoll, title: e.target.value })}
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                        placeholder="e.g., Annual Picnic Location"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700">Poll Type</label>
+                      <select
+                        value={newPoll.poll_type}
+                        onChange={(e) => setNewPoll({ ...newPoll, poll_type: e.target.value as 'yes_no' | 'multiple_choice' })}
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                      >
+                        <option value="yes_no">Yes/No</option>
+                        <option value="multiple_choice">Multiple Choice</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Question</label>
+                    <textarea
+                      value={newPoll.question}
+                      onChange={(e) => setNewPoll({ ...newPoll, question: e.target.value })}
+                      rows={3}
+                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                      placeholder="What would you like to ask your members?"
+                      required
+                    />
+                  </div>
+
+                  {newPoll.poll_type === 'multiple_choice' && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700">Options</label>
+                      {newPoll.options.map((option, index) => (
+                        <div key={index} className="flex gap-2 mt-2">
+                          <input
+                            type="text"
+                            value={option}
+                            onChange={(e) => {
+                              const newOptions = [...newPoll.options]
+                              newOptions[index] = e.target.value
+                              setNewPoll({ ...newPoll, options: newOptions })
+                            }}
+                            className="flex-1 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                            placeholder={`Option ${index + 1}`}
+                          />
+                          {index > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const newOptions = newPoll.options.filter((_, i) => i !== index)
+                                setNewPoll({ ...newPoll, options: newOptions })
+                              }}
+                              className="text-red-600 hover:text-red-800"
+                            >
+                              Remove
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => setNewPoll({ ...newPoll, options: [...newPoll.options, ''] })}
+                        className="mt-2 text-blue-600 hover:text-blue-800 text-sm"
+                      >
+                        + Add Option
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 gap-4">
+                    <div>
+                      <label className="flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={newPoll.is_anonymous}
+                          onChange={(e) => setNewPoll({ ...newPoll, is_anonymous: e.target.checked })}
+                          className="mr-2"
+                        />
+                        Anonymous responses
+                      </label>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700">Expires (Optional)</label>
+                      <input
+                        type="datetime-local"
+                        value={newPoll.expires_at}
+                        onChange={(e) => setNewPoll({ ...newPoll, expires_at: e.target.value })}
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="bg-blue-600 text-white py-2 px-6 rounded-md hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {loading ? 'Creating...' : 'Create Poll'}
+                  </button>
+                </form>
+              </div>
+            )}
+
+            <div className="p-6 flex-1 overflow-hidden">
+              {polls.length === 0 ? (
+                <p className="text-gray-500 text-center py-8">No polls yet. Create your first poll to get member feedback!</p>
+              ) : (
+                <div className="h-full overflow-y-auto space-y-4 pr-2">
+                  {polls.map((poll) => (
+                    <div key={poll.id} className="border rounded-lg p-4 hover:shadow-sm transition-shadow relative">
+                      {/* Close X in top right corner */}
+                      <button
+                        onClick={() => setPollToClose(poll)}
+                        className="absolute top-2 right-2 text-gray-400 hover:text-red-500 text-lg font-bold w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-100"
+                        title="Close poll"
+                      >
+                        ×
+                      </button>
+                      
+                      <div className="flex justify-between items-start mb-3">
+                        <div className="flex-1 pr-8">
+                          <h3 className="font-semibold text-lg">{poll.title}</h3>
+                          <p className="text-gray-600 mt-1">{poll.question}</p>
+                          <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
+                            <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                              poll.status === 'active' ? 'bg-green-100 text-green-800' :
+                              poll.status === 'closed' ? 'bg-gray-100 text-gray-800' :
+                              'bg-yellow-100 text-yellow-800'
+                            }`}>
+                              {poll.status}
+                            </span>
+                            <span>{poll.poll_type === 'yes_no' ? 'Yes/No' : 'Multiple Choice'}</span>
+                            {poll.is_anonymous && <span>Anonymous</span>}
+                            <span>{poll.total_responses} responses</span>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="flex gap-2 mb-4">
+                        <button
+                          onClick={() => sendPollEmails(poll.id)}
+                          className="text-purple-600 hover:text-purple-800 font-medium cursor-pointer text-sm"
+                        >
+                          Email Members
+                        </button>
+                        <button
+                          onClick={() => {
+                            setViewingPoll(poll)
+                            loadPollResponses(poll.id)
+                          }}
+                          className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
+                        >
+                          View Results →
+                        </button>
+                      </div>
+                      
+                      {/* Last emailed status */}
+                      <div className="pt-3 border-t border-gray-200 text-right">
+                        <span className="text-xs text-gray-500">
+                          {poll.last_emailed_at 
+                            ? `Last emailed: ${new Date(poll.last_emailed_at).toLocaleDateString()}`
+                            : 'Never emailed'
+                          }
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+        
+
+         {/* Members Panel */}
+          <div className="bg-white rounded-lg shadow flex flex-col h-[calc(100vh-300px)]">
+            <div className="px-6 py-4 border-b flex-shrink-0">
               <div className="flex justify-between items-center">
                 <h2 className="text-xl font-semibold">Members ({members.length})</h2>
                 <button
@@ -911,273 +1118,10 @@ const updatePollResponse = async (responseId: string, newResponse: string) => {
                   {showMemberForm ? 'Hide Form' : 'Add Member'}
                 </button>
               </div>
-                          <div className="p-6">
-              {members.length === 0 ? (
-                <p className="text-gray-500 text-center py-8">No members yet. Add your first team member!</p>
-              ) : (
-                <div className="max-h-96 overflow-y-auto space-y-4 pr-2">
-                  {members.map((member) => (
-                    <div key={member.id} className="border rounded-lg p-4 hover:shadow-sm transition-shadow relative">
-                      {/* Delete X in top right corner */}
-                      <button
-                        onClick={() => setDeletingMember(member)}
-                        className="absolute top-2 right-2 text-gray-400 hover:text-red-500 text-lg font-bold w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-100"
-                        title="Delete member"
-                      >
-                        ×
-                      </button>
-                      
-                      <div className="flex justify-between items-start">
-                        <div className="flex-1 pr-8">
-                          <div className="mb-2">
-                            <button
-                              onClick={() => setEditingMember(member)}
-                              className="text-lg font-semibold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
-                              title="Click to edit member"
-                            >
-                              {member.first_name} {member.last_name}
-                            </button>
-                          </div>
-                          
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm text-gray-600">
-                            <div>
-                               {member.email}
-                            </div>
-                            <div>
-                               {member.phone_number || '—'}
-                            </div>
-                          </div>
-                          
-                          {member.address && (
-                            <div className="mt-2 text-sm text-gray-600">
-                               {member.address}
-                            </div>
-                          )}
-                          
-                          <div className="mt-2 flex items-center gap-2">
-                            {member.position && (
-                              <span className="text-xs text-gray-400">
-                                {member.position}
-                              </span>
-                            )}
-                            {member.position && (
-                              <span className="text-xs text-gray-300">•</span>
-                            )}
-                            <span className="text-xs text-gray-400">
-                              {member.role === 'tenant_admin' ? 'admin' : 'member'}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            </div>
-
-
-            {/* Polls Section */}
-            <div className="bg-white rounded-lg shadow mt-8">
-              <div className="px-6 py-4 border-b">
-                <div className="flex justify-between items-center">
-                  <h2 className="text-xl font-semibold">Active Polls ({polls.length})</h2>
-                  <button
-                    onClick={() => setShowPollForm(!showPollForm)}
-                    className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
-                  >
-                    {showPollForm ? 'Hide Form' : 'Create Poll'}
-                  </button>
-                </div>
-              </div>
-
-              {showPollForm && (
-                <div className="p-6 border-b bg-gray-50">
-                  <form onSubmit={createPoll} className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Poll Title</label>
-                        <input
-                          type="text"
-                          value={newPoll.title}
-                          onChange={(e) => setNewPoll({ ...newPoll, title: e.target.value })}
-                          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                          placeholder="e.g., Annual Picnic Location"
-                          required
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Poll Type</label>
-                        <select
-                          value={newPoll.poll_type}
-                          onChange={(e) => setNewPoll({ ...newPoll, poll_type: e.target.value as 'yes_no' | 'multiple_choice' })}
-                          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                        >
-                          <option value="yes_no">Yes/No</option>
-                          <option value="multiple_choice">Multiple Choice</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Question</label>
-                      <textarea
-                        value={newPoll.question}
-                        onChange={(e) => setNewPoll({ ...newPoll, question: e.target.value })}
-                        rows={3}
-                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                        placeholder="What would you like to ask your members?"
-                        required
-                      />
-                    </div>
-
-                    {newPoll.poll_type === 'multiple_choice' && (
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Options</label>
-                        {newPoll.options.map((option, index) => (
-                          <div key={index} className="flex gap-2 mt-2">
-                            <input
-                              type="text"
-                              value={option}
-                              onChange={(e) => {
-                                const newOptions = [...newPoll.options]
-                                newOptions[index] = e.target.value
-                                setNewPoll({ ...newPoll, options: newOptions })
-                              }}
-                              className="flex-1 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                              placeholder={`Option ${index + 1}`}
-                            />
-                            {index > 0 && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const newOptions = newPoll.options.filter((_, i) => i !== index)
-                                  setNewPoll({ ...newPoll, options: newOptions })
-                                }}
-                                className="text-red-600 hover:text-red-800"
-                              >
-                                Remove
-                              </button>
-                            )}
-                          </div>
-                        ))}
-                        <button
-                          type="button"
-                          onClick={() => setNewPoll({ ...newPoll, options: [...newPoll.options, ''] })}
-                          className="mt-2 text-blue-600 hover:text-blue-800 text-sm"
-                        >
-                          + Add Option
-                        </button>
-                      </div>
-                    )}
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="flex items-center">
-                          <input
-                            type="checkbox"
-                            checked={newPoll.is_anonymous}
-                            onChange={(e) => setNewPoll({ ...newPoll, is_anonymous: e.target.checked })}
-                            className="mr-2"
-                          />
-                          Anonymous responses
-                        </label>
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Expires (Optional)</label>
-                        <input
-                          type="datetime-local"
-                          value={newPoll.expires_at}
-                          onChange={(e) => setNewPoll({ ...newPoll, expires_at: e.target.value })}
-                          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                        />
-                      </div>
-                    </div>
-
-                    <button
-                      type="submit"
-                      disabled={loading}
-                      className="bg-blue-600 text-white py-2 px-6 rounded-md hover:bg-blue-700 disabled:opacity-50"
-                    >
-                      {loading ? 'Creating...' : 'Create Poll'}
-                    </button>
-                  </form>
-                </div>
-              )}
-
-              <div className="p-6">
-                {polls.length === 0 ? (
-                  <p className="text-gray-500 text-center py-8">No polls yet. Create your first poll to get member feedback!</p>
-                ) : (
-                  <div className="space-y-4">
-                    {polls.map((poll) => (
-                      <div key={poll.id} className="border rounded-lg p-4 hover:shadow-sm transition-shadow relative">
-                        {/* Close X in top right corner */}
-                        <button
-                          onClick={() => setPollToClose(poll)}
-                          className="absolute top-2 right-2 text-gray-400 hover:text-red-500 text-lg font-bold w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-100"
-                          title="Close poll"
-                        >
-                          ×
-                        </button>
-                        
-                        <div className="flex justify-between items-start mb-3">
-                          <div className="flex-1 pr-8">
-                            <h3 className="font-semibold text-lg">{poll.title}</h3>
-                            <p className="text-gray-600 mt-1">{poll.question}</p>
-                            <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
-                              <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                                poll.status === 'active' ? 'bg-green-100 text-green-800' :
-                                poll.status === 'closed' ? 'bg-gray-100 text-gray-800' :
-                                'bg-yellow-100 text-yellow-800'
-                              }`}>
-                                {poll.status}
-                              </span>
-                              <span>{poll.poll_type === 'yes_no' ? 'Yes/No' : 'Multiple Choice'}</span>
-                              {poll.is_anonymous && <span>Anonymous</span>}
-                              <span>{poll.total_responses} responses</span>
-                            </div>
-                          </div>
-                          
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => sendPollEmails(poll.id)}
-                              className="text-purple-600 hover:text-purple-800 font-medium cursor-pointer text-sm"
-                            >
-                              Email Members
-                            </button>
-                            <button
-                              onClick={() => {
-                                setViewingPoll(poll)
-                                loadPollResponses(poll.id)
-                              }}
-                              className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
-                            >
-                              View Results →
-                            </button>
-                          </div>
-                        </div>
-                        
-                        {/* Last emailed status */}
-                        <div className="mt-4 pt-3 border-t border-gray-200 text-right">
-                          <span className="text-xs text-gray-500">
-                            {poll.last_emailed_at 
-                              ? `Last emailed: ${new Date(poll.last_emailed_at).toLocaleDateString()}`
-                              : 'Never emailed'
-                            }
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
             </div>
 
             {showMemberForm && (
-              <div className="p-6 border-b bg-gray-50">
+              <div className="p-6 border-b bg-gray-50 flex-shrink-0">
                 <form onSubmit={addMember} className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
@@ -1276,6 +1220,69 @@ const updatePollResponse = async (responseId: string, newResponse: string) => {
               </div>
             )}
 
+            <div className="p-6 flex-1 overflow-hidden">
+              {members.length === 0 ? (
+                <p className="text-gray-500 text-center py-8">No members yet. Add your first team member!</p>
+              ) : (
+                <div className="h-full overflow-y-auto space-y-4 pr-2">
+                  {members.map((member) => (
+                    <div key={member.id} className="border rounded-lg p-4 hover:shadow-sm transition-shadow relative">
+                      {/* Delete X in top right corner */}
+                      <button
+                        onClick={() => setDeletingMember(member)}
+                        className="absolute top-2 right-2 text-gray-400 hover:text-red-500 text-lg font-bold w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-100"
+                        title="Delete member"
+                      >
+                        ×
+                      </button>
+                      
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1 pr-8">
+                          <div className="mb-2">
+                            <button
+                              onClick={() => setEditingMember(member)}
+                              className="text-lg font-semibold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                              title="Click to edit member"
+                            >
+                              {member.first_name} {member.last_name}
+                            </button>
+                          </div>
+                          
+                          <div className="grid grid-cols-1 gap-2 text-sm text-gray-600">
+                            <div>
+                               {member.email}
+                            </div>
+                            <div>
+                               {member.phone_number || '—'}
+                            </div>
+                          </div>
+                          
+                          {member.address && (
+                            <div className="mt-2 text-sm text-gray-600">
+                               {member.address}
+                            </div>
+                          )}
+                          
+                          <div className="mt-2 flex items-center gap-2">
+                            {member.position && (
+                              <span className="text-xs text-gray-400">
+                                {member.position}
+                              </span>
+                            )}
+                            {member.position && (
+                              <span className="text-xs text-gray-300">•</span>
+                            )}
+                            <span className="text-xs text-gray-400">
+                              {member.role === 'tenant_admin' ? 'admin' : 'member'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 

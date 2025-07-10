@@ -1,6 +1,10 @@
+// File: src/components/Header.tsx
+// Version: 2.0 - Added Voluntold logo matching home page
+
 'use client'
 
 import { useState, useEffect } from 'react'
+import Image from 'next/image'
 import { supabase } from '../lib/supabase'
 import { useRouter } from 'next/navigation'
 
@@ -56,7 +60,15 @@ export default function Header() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center py-4">
           <div className="flex items-center space-x-4">
-            <h1 className="text-xl font-semibold text-gray-900">Voluntold</h1>
+            {/* Logo */}
+            <Image
+              src="/voluntold-logo.png"
+              alt="Voluntold"
+              width={200}
+              height={60}
+              className="h-12 w-auto"
+              priority
+            />
             {profile?.role === 'super_admin' && (
               <span className="text-sm bg-purple-100 text-purple-800 px-2 py-1 rounded-full">
                 Super Admin
