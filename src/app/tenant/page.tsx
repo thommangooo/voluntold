@@ -915,69 +915,67 @@ const updatePollResponse = async (responseId: string, newResponse: string) => {
               {members.length === 0 ? (
                 <p className="text-gray-500 text-center py-8">No members yet. Add your first team member!</p>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Name
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Email
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Phone
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Joined
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Actions
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {members.map((member) => (
-                        <tr key={member.id}>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm font-medium text-gray-900">
-                              {member.first_name} {member.last_name}
-                            </div>
-                            <div className="text-sm text-gray-500">{member.role}</div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-900">{member.email}</div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-900">
-                              {member.phone_number || '—'}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {new Date(member.created_at).toLocaleDateString()}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                <div className="space-y-4">
+                  {members.map((member) => (
+                    <div key={member.id} className="border rounded-lg p-4 hover:shadow-sm transition-shadow relative">
+                      {/* Delete X in top right corner */}
+                      <button
+                        onClick={() => setDeletingMember(member)}
+                        className="absolute top-2 right-2 text-gray-400 hover:text-red-500 text-lg font-bold w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-100"
+                        title="Delete member"
+                      >
+                        ×
+                      </button>
+                      
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1 pr-8">
+                          <div className="mb-2">
                             <button
                               onClick={() => setEditingMember(member)}
-                              className="text-blue-600 hover:text-blue-800 mr-3 cursor-pointer"
+                              className="text-lg font-semibold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                              title="Click to edit member"
                             >
-                              Edit
+                              {member.first_name} {member.last_name}
                             </button>
-                            <button
-                              onClick={() => setDeletingMember(member)}
-                              className="text-red-600 hover:text-red-800 cursor-pointer"
-                            >
-                              Delete
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                          </div>
+                          
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm text-gray-600">
+                            <div>
+                               {member.email}
+                            </div>
+                            <div>
+                               {member.phone_number || '—'}
+                            </div>
+                          </div>
+                          
+                          {member.address && (
+                            <div className="mt-2 text-sm text-gray-600">
+                               {member.address}
+                            </div>
+                          )}
+                          
+                          <div className="mt-2 flex items-center gap-2">
+                            {member.position && (
+                              <span className="text-xs text-gray-400">
+                                {member.position}
+                              </span>
+                            )}
+                            {member.position && (
+                              <span className="text-xs text-gray-300">•</span>
+                            )}
+                            <span className="text-xs text-gray-400">
+                              {member.role === 'tenant_admin' ? 'admin' : 'member'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
             </div>
+
 
             {/* Polls Section */}
             <div className="bg-white rounded-lg shadow mt-8">
