@@ -1,3 +1,4 @@
+// src/app/member/[token]/page.tsx - v2.2 - Fixed token validation
 'use client'
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
@@ -30,6 +31,7 @@ interface UpcomingOpportunity {
   filled_count: number
   is_signed_up: boolean
   location?: string
+  description?: string
 }
 
 interface HoursBreakdown {
@@ -82,176 +84,396 @@ export default function MemberPortal({ params }: { params: { token: string } }) 
 
   const loadMemberData = async () => {
     try {
-      // TODO: Validate token and get member info
-      // For now, using mock data
-      
-      // Mock member info
-      setMemberInfo({
-        id: 'mock-member-id',
-        email: 'john.doe@email.com',
-        first_name: 'John',
-        last_name: 'Doe',
-        phone_number: '555-123-4567',
-        position: 'Volunteer',
-        tenant_id: 'mock-tenant-id'
-      })
+      // Step 1: Check if token exists
+      const { data: tokenData, error: tokenError } = await supabase
+        .from('member_tokens')
+        .select('*')
+        .eq('token', params.token)
 
-      // Mock tenant info
-      setTenantInfo({
-        id: 'mock-tenant-id',
-        name: 'Community Volunteers',
-        slug: 'community-volunteers'
-      })
+      if (tokenError || !tokenData || tokenData.length === 0) {
+        throw new Error('Invalid access token')
+      }
+
+      const token = tokenData[0]
+
+      // Step 2: Check if token is already used
+      if (token.used_at) {
+        throw new Error('Access token has already been used')
+      }
+
+      // Step 3: Check if token is expired
+      const now = new Date()
+      const expiresAt = new Date(token.expires_at)
+      if (now > expiresAt) {
+        throw new Error('Access token has expired')
+      }
+
+      // Step 4: Mark token as used
+      await supabase
+        .from('member_tokens')
+        .update({ used_at: now.toISOString() })
+        .eq('id', token.id)
+
+      // Step 5: Get member info
+      const { data: memberData, error: memberError } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .eq('email', token.member_email)
+        .eq('tenant_id', token.tenant_id)
+        .single()
+
+      if (memberError || !memberData) {
+        throw new Error('Member not found')
+      }
+
+      // Step 6: Get tenant info
+      const { data: tenantData, error: tenantError } = await supabase
+        .from('tenants')
+        .select('*')
+        .eq('id', token.tenant_id)
+        .single()
+
+      if (tenantError || !tenantData) {
+        throw new Error('Organization not found')
+      }
+
+      setMemberInfo(memberData)
+      setTenantInfo(tenantData)
 
       // Load all member data
       await Promise.all([
-        loadUpcomingOpportunities(),
-        loadHoursBreakdown(),
-        loadActivePolls(),
-        loadRoster()
+        loadUpcomingOpportunities(token.tenant_id, token.member_email),
+        loadHoursBreakdown(token.tenant_id, token.member_email),
+        loadActivePolls(token.tenant_id, token.member_email),
+        loadRoster(token.tenant_id)
       ])
 
     } catch (error) {
+      console.error('Error loading member data:', error)
       setMessage(`Error loading member data: ${(error as Error).message}`)
     } finally {
       setLoading(false)
     }
   }
 
-  const loadUpcomingOpportunities = async () => {
-    // TODO: Load opportunities from database
-    // Query: Future opportunities + member signup status + available spots
-    
-    // Mock data
-    setUpcomingOpportunities([
-      {
-        id: '1',
-        title: 'Morning Registration Desk',
-        project_name: '2026 Charity Run',
-        date_scheduled: '2025-08-15',
-        time_start: '07:00',
-        duration_hours: 4,
-        volunteers_needed: 3,
-        filled_count: 2,
-        is_signed_up: true,
-        location: 'Main Entrance'
-      },
-      {
-        id: '2',
-        title: 'Setup Crew',
-        project_name: 'Annual Picnic',
-        date_scheduled: '2025-08-20',
-        time_start: '08:00',
-        duration_hours: 3,
-        volunteers_needed: 5,
-        filled_count: 3,
-        is_signed_up: false,
-        location: 'Community Park'
-      },
-      {
-        id: '3',
-        title: 'Afternoon Cleanup',
-        project_name: 'Annual Picnic',
-        date_scheduled: '2025-08-20',
-        time_start: '15:00',
-        duration_hours: 2,
-        volunteers_needed: 4,
-        filled_count: 4,
-        is_signed_up: false,
-        location: 'Community Park'
+  const loadUpcomingOpportunities = async (tenantId: string, memberEmail: string) => {
+    try {
+      // Get upcoming opportunities with project info and signup status
+      const { data: opportunities, error } = await supabase
+        .from('opportunities')
+        .select(`
+          *,
+          projects!inner(name),
+          signups!left(member_email, status)
+        `)
+        .eq('tenant_id', tenantId)
+        .gte('date_scheduled', new Date().toISOString().split('T')[0])
+        .order('date_scheduled', { ascending: true })
+        .order('time_start', { ascending: true })
+
+      if (error) {
+        console.error('Error loading opportunities:', error)
+        return
       }
-    ])
+
+      // Process opportunities with signup counts and member status
+      const processedOpportunities = await Promise.all(
+        opportunities.map(async (opp) => {
+          // Count confirmed signups
+          const { count: filledCount } = await supabase
+            .from('signups')
+            .select('*', { count: 'exact', head: true })
+            .eq('opportunity_id', opp.id)
+            .eq('status', 'confirmed')
+
+          // Check if member is signed up
+          const { data: memberSignup } = await supabase
+            .from('signups')
+            .select('*')
+            .eq('opportunity_id', opp.id)
+            .eq('member_email', memberEmail)
+            .eq('status', 'confirmed')
+            .single()
+
+          return {
+            id: opp.id,
+            title: opp.title,
+            project_name: opp.projects.name,
+            date_scheduled: opp.date_scheduled,
+            time_start: opp.time_start || '00:00',
+            duration_hours: opp.duration_hours || 0,
+            volunteers_needed: opp.volunteers_needed || 1,
+            filled_count: filledCount || 0,
+            is_signed_up: !!memberSignup,
+            location: opp.location,
+            description: opp.description
+          }
+        })
+      )
+
+      setUpcomingOpportunities(processedOpportunities)
+    } catch (error) {
+      console.error('Error loading opportunities:', error)
+    }
   }
 
-  const loadHoursBreakdown = async () => {
-    // TODO: Calculate hours from signups + additional_hours
-    
-    // Mock data
-    setHoursBreakdown({
-      lifetime_total: 147.5,
-      this_year_total: 47.5,
-      opportunity_hours: 32.0,
-      additional_hours: 15.5,
-      projects: [
-        { project_name: '2025 Charity Run', hours: 12.0 },
-        { project_name: 'Community Garden', hours: 20.0 },
-        { project_name: 'Food Drive', hours: 15.5 }
-      ]
-    })
+  const loadHoursBreakdown = async (tenantId: string, memberEmail: string) => {
+    try {
+      // Get current year
+      const currentYear = new Date().getFullYear()
+      const startOfYear = `${currentYear}-01-01`
+      const endOfYear = `${currentYear}-12-31`
+
+      // Get member profile to get member ID
+      const { data: memberProfile } = await supabase
+        .from('user_profiles')
+        .select('id')
+        .eq('email', memberEmail)
+        .eq('tenant_id', tenantId)
+        .single()
+
+      if (!memberProfile) return
+
+      // Get hours from completed signups
+      const { data: signupHours } = await supabase
+        .from('signups')
+        .select(`
+          opportunities!inner(duration_hours, date_scheduled, projects!inner(name))
+        `)
+        .eq('tenant_id', tenantId)
+        .eq('member_email', memberEmail)
+        .eq('status', 'confirmed')
+        .lte('opportunities.date_scheduled', new Date().toISOString().split('T')[0])
+
+      // Get additional hours
+      const { data: additionalHours } = await supabase
+        .from('additional_hours')
+        .select(`
+          hours_worked,
+          date_worked,
+          projects!inner(name)
+        `)
+        .eq('tenant_id', tenantId)
+        .eq('member_id', memberProfile.id)
+
+      // Calculate totals
+      let lifetimeOpportunityHours = 0
+      let thisYearOpportunityHours = 0
+      let lifetimeAdditionalHours = 0
+      let thisYearAdditionalHours = 0
+      const projectHours: { [key: string]: number } = {}
+
+      // Process signup hours
+      signupHours?.forEach(signup => {
+        const hours = (signup.opportunities as any).duration_hours || 0
+        const date = (signup.opportunities as any).date_scheduled
+        const projectName = ((signup.opportunities as any).projects as any).name
+        
+        lifetimeOpportunityHours += hours
+        projectHours[projectName] = (projectHours[projectName] || 0) + hours
+        
+        if (date >= startOfYear && date <= endOfYear) {
+          thisYearOpportunityHours += hours
+        }
+      })
+
+      // Process additional hours
+      additionalHours?.forEach((hoursRecord: any) => {
+        const hoursWorked = hoursRecord.hours_worked || 0
+        const date = hoursRecord.date_worked
+        const projectName = hoursRecord.projects.name
+        
+        lifetimeAdditionalHours += hoursWorked
+        projectHours[projectName] = (projectHours[projectName] || 0) + hoursWorked
+        
+        if (date >= startOfYear && date <= endOfYear) {
+          thisYearAdditionalHours += hoursWorked
+        }
+      })
+
+      // Convert project hours to array
+      const projectsArray = Object.entries(projectHours).map(([project_name, hours]) => ({
+        project_name,
+        hours
+      }))
+
+      setHoursBreakdown({
+        lifetime_total: lifetimeOpportunityHours + lifetimeAdditionalHours,
+        this_year_total: thisYearOpportunityHours + thisYearAdditionalHours,
+        opportunity_hours: lifetimeOpportunityHours,
+        additional_hours: lifetimeAdditionalHours,
+        projects: projectsArray
+      })
+    } catch (error) {
+      console.error('Error loading hours breakdown:', error)
+    }
   }
 
-  const loadActivePolls = async () => {
-    // TODO: Load active polls + member response status
-    
-    // Mock data
-    setActivePolls([
-      {
-        id: '1',
-        title: 'Annual Picnic Location',
-        question: 'Where should we hold this year\'s annual picnic?',
-        poll_type: 'multiple_choice',
-        options: ['Community Park', 'Beach Front', 'School Gymnasium'],
-        expires_at: '2025-08-01T23:59:59Z',
-        has_responded: false
-      },
-      {
-        id: '2',
-        title: 'Meeting Schedule',
-        question: 'Should we continue monthly meetings on the first Saturday?',
-        poll_type: 'yes_no',
-        expires_at: null,
-        has_responded: true,
-        member_response: 'Yes'
+  const loadActivePolls = async (tenantId: string, memberEmail: string) => {
+    try {
+      // Get active polls
+      const { data: polls, error } = await supabase
+        .from('polls')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .eq('status', 'active')
+        .order('created_at', { ascending: false })
+
+      if (error) {
+        console.error('Error loading polls:', error)
+        return
       }
-    ])
+
+      // Check member responses for each poll
+      const pollsWithResponses = await Promise.all(
+        polls.map(async (poll) => {
+          const { data: response } = await supabase
+            .from('poll_responses')
+            .select('response')
+            .eq('poll_id', poll.id)
+            .eq('member_email', memberEmail)
+            .single()
+
+          return {
+            id: poll.id,
+            title: poll.title,
+            question: poll.question,
+            poll_type: poll.poll_type as 'yes_no' | 'multiple_choice',
+            options: poll.options as string[] | undefined,
+            expires_at: poll.expires_at,
+            has_responded: !!response,
+            member_response: response?.response
+          }
+        })
+      )
+
+      setActivePolls(pollsWithResponses)
+    } catch (error) {
+      console.error('Error loading polls:', error)
+    }
   }
 
-  const loadRoster = async () => {
-    // TODO: Load all members for this tenant
-    
-    // Mock data
-    setRoster([
-      {
-        id: '1',
-        first_name: 'Alice',
-        last_name: 'Anderson',
-        email: 'alice@email.com',
-        phone_number: '555-111-2222',
-        position: 'Treasurer'
-      },
-      {
-        id: '2',
-        first_name: 'Bob',
-        last_name: 'Brown',
-        email: 'bob@email.com',
-        phone_number: '555-333-4444',
-        position: 'Member'
-      },
-      {
-        id: '3',
-        first_name: 'Carol',
-        last_name: 'Davis',
-        email: 'carol@email.com',
-        phone_number: null,
-        position: 'Secretary'
-      },
-      {
-        id: '4',
-        first_name: 'John',
-        last_name: 'Doe',
-        email: 'john.doe@email.com',
-        phone_number: '555-123-4567',
-        position: 'Volunteer'
+  const loadRoster = async (tenantId: string) => {
+    try {
+      const { data: members, error } = await supabase
+        .from('user_profiles')
+        .select('id, first_name, last_name, email, phone_number, position')
+        .eq('tenant_id', tenantId)
+        .order('first_name', { ascending: true })
+
+      if (error) {
+        console.error('Error loading roster:', error)
+        return
       }
-    ])
+
+      setRoster(members || [])
+    } catch (error) {
+      console.error('Error loading roster:', error)
+    }
   }
 
   const submitPollResponse = async (pollId: string, response: string) => {
-    // TODO: Submit poll response
-    setMessage(`Response "${response}" submitted successfully!`)
-    setSelectedPoll(null)
-    // Reload polls to update status
-    loadActivePolls()
+    try {
+      if (!memberInfo || !tenantInfo) return
+
+      // Generate response token
+      const responseToken = Math.random().toString(36).substring(2, 15) + 
+                           Math.random().toString(36).substring(2, 15)
+
+      // Submit response
+      const { error } = await supabase
+        .from('poll_responses')
+        .insert({
+          poll_id: pollId,
+          tenant_id: tenantInfo.id,
+          member_email: memberInfo.email,
+          member_name: `${memberInfo.first_name} ${memberInfo.last_name}`,
+          response,
+          response_token: responseToken
+        })
+
+      if (error) {
+        console.error('Error submitting poll response:', error)
+        setMessage('Error submitting response. Please try again.')
+        return
+      }
+
+      // Update poll response count
+      await supabase.rpc('increment_poll_responses', { poll_id: pollId })
+
+      setMessage(`Response "${response}" submitted successfully!`)
+      setSelectedPoll(null)
+      
+      // Reload polls to update status
+      if (tenantInfo) {
+        loadActivePolls(tenantInfo.id, memberInfo.email)
+      }
+    } catch (error) {
+      console.error('Error submitting poll response:', error)
+      setMessage('Error submitting response. Please try again.')
+    }
+  }
+
+  const signUpForOpportunity = async (opportunityId: string) => {
+    try {
+      if (!memberInfo || !tenantInfo) return
+
+      // Check if already signed up
+      const { data: existingSignup } = await supabase
+        .from('signups')
+        .select('*')
+        .eq('opportunity_id', opportunityId)
+        .eq('member_email', memberInfo.email)
+        .single()
+
+      if (existingSignup) {
+        setMessage('You are already signed up for this opportunity.')
+        return
+      }
+
+      // Check if opportunity is full
+      const { count: currentSignups } = await supabase
+        .from('signups')
+        .select('*', { count: 'exact', head: true })
+        .eq('opportunity_id', opportunityId)
+        .eq('status', 'confirmed')
+
+      const opportunity = upcomingOpportunities.find(opp => opp.id === opportunityId)
+      if (opportunity && currentSignups && currentSignups >= opportunity.volunteers_needed) {
+        setMessage('This opportunity is already full.')
+        return
+      }
+
+      // Generate signup token
+      const signupToken = Math.random().toString(36).substring(2, 15) + 
+                         Math.random().toString(36).substring(2, 15)
+
+      // Create signup
+      const { error } = await supabase
+        .from('signups')
+        .insert({
+          opportunity_id: opportunityId,
+          tenant_id: tenantInfo.id,
+          member_email: memberInfo.email,
+          member_name: `${memberInfo.first_name} ${memberInfo.last_name}`,
+          signup_token: signupToken,
+          status: 'confirmed'
+        })
+
+      if (error) {
+        console.error('Error signing up:', error)
+        setMessage('Error signing up. Please try again.')
+        return
+      }
+
+      setMessage('Successfully signed up! You will receive a confirmation email.')
+      
+      // Reload opportunities to update status
+      loadUpcomingOpportunities(tenantInfo.id, memberInfo.email)
+    } catch (error) {
+      console.error('Error signing up:', error)
+      setMessage('Error signing up. Please try again.')
+    }
   }
 
   if (loading) {
@@ -268,6 +490,12 @@ export default function MemberPortal({ params }: { params: { token: string } }) 
         <div className="text-center">
           <h1 className="text-2xl font-bold text-gray-900">Access Denied</h1>
           <p className="text-gray-600 mt-2">Invalid or expired access link.</p>
+          <button
+            onClick={() => router.push('/')}
+            className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+          >
+            Return to Home
+          </button>
         </div>
       </div>
     )
@@ -307,6 +535,12 @@ export default function MemberPortal({ params }: { params: { token: string } }) 
         {message && (
           <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-md">
             <p className="text-blue-800">{message}</p>
+            <button
+              onClick={() => setMessage('')}
+              className="ml-4 text-blue-600 hover:text-blue-800 text-sm underline"
+            >
+              Dismiss
+            </button>
           </div>
         )}
 
@@ -327,6 +561,9 @@ export default function MemberPortal({ params }: { params: { token: string } }) 
                         <div className="flex-1">
                           <h3 className="font-semibold text-lg">{opportunity.title}</h3>
                           <p className="text-blue-600 font-medium">{opportunity.project_name}</p>
+                          {opportunity.description && (
+                            <p className="text-gray-600 text-sm mt-1">{opportunity.description}</p>
+                          )}
                         </div>
                         {opportunity.is_signed_up ? (
                           <span className="bg-green-100 text-green-800 text-sm font-medium px-2 py-1 rounded">
@@ -364,8 +601,11 @@ export default function MemberPortal({ params }: { params: { token: string } }) 
                       </div>
 
                       {!opportunity.is_signed_up && opportunity.filled_count < opportunity.volunteers_needed && (
-                        <button className="text-blue-600 hover:text-blue-800 font-medium">
-                          Sign Up →
+                        <button
+                          onClick={() => signUpForOpportunity(opportunity.id)}
+                          className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 font-medium"
+                        >
+                          Sign Up
                         </button>
                       )}
                     </div>
@@ -416,17 +656,19 @@ export default function MemberPortal({ params }: { params: { token: string } }) 
                   </div>
 
                   {/* Project Breakdown */}
-                  <div>
-                    <h4 className="font-medium text-gray-700 mb-3">Hours by Project:</h4>
-                    <div className="space-y-2">
-                      {hoursBreakdown.projects.map((project, index) => (
-                        <div key={index} className="flex justify-between text-sm">
-                          <span className="text-gray-600">{project.project_name}</span>
-                          <span className="font-medium">{project.hours} hrs</span>
-                        </div>
-                      ))}
+                  {hoursBreakdown.projects.length > 0 && (
+                    <div>
+                      <h4 className="font-medium text-gray-700 mb-3">Hours by Project:</h4>
+                      <div className="space-y-2">
+                        {hoursBreakdown.projects.map((project, index) => (
+                          <div key={index} className="flex justify-between text-sm">
+                            <span className="text-gray-600">{project.project_name}</span>
+                            <span className="font-medium">{project.hours} hrs</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
               ) : (
                 <p className="text-gray-500 text-center py-8">No hours recorded yet.</p>
@@ -476,9 +718,9 @@ export default function MemberPortal({ params }: { params: { token: string } }) 
                       ) : (
                         <button
                           onClick={() => setSelectedPoll(poll)}
-                          className="text-blue-600 hover:text-blue-800 font-medium"
+                          className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 font-medium"
                         >
-                          Respond →
+                          Respond
                         </button>
                       )}
                     </div>

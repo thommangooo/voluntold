@@ -915,7 +915,7 @@ const updatePollResponse = async (responseId: string, newResponse: string) => {
               {members.length === 0 ? (
                 <p className="text-gray-500 text-center py-8">No members yet. Add your first team member!</p>
               ) : (
-                <div className="space-y-4">
+                <div className="max-h-96 overflow-y-auto space-y-4 pr-2">
                   {members.map((member) => (
                     <div key={member.id} className="border rounded-lg p-4 hover:shadow-sm transition-shadow relative">
                       {/* Delete X in top right corner */}
