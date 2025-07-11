@@ -157,30 +157,44 @@ export default function HomePage() {
             Manage projects, sign-up sheets, voting and keep your team connected.
           </p>
           
-          {/* Marketing Content Placeholder */}
+          {/* Marketing Content - 60/40 Split */}
           <div className="mt-12 p-8 bg-blue-50 rounded-lg border-2 border-dashed border-blue-200">
-            <h3 className="text-lg font-semibold text-blue-900 mb-2">Marketing Content Placeholder</h3>
-            <p className="text-blue-700">
-              This section is ready for your marketing content, features overview, testimonials, or any other promotional material.
-            </p>
-          </div>
-
-          {/* Call to Action Buttons */}
-          <div className="mt-12 flex flex-col sm:flex-row justify-center gap-4">
-            <button
-              onClick={() => router.push('/auth/login')}
-              className="bg-white text-blue-600 border-2 border-blue-600 px-8 py-3 rounded-md hover:bg-blue-50 font-semibold text-lg transition-colors"
-            >
-              Organization Admin Sign In
-            </button>
-            <button
-              onClick={() => setShowMemberAccess(true)}
-              className="bg-blue-600 text-white px-8 py-3 rounded-md hover:bg-blue-700 font-semibold text-lg transition-colors"
-            >
-              Member Portal Access
-            </button>
+            <div className="flex flex-col lg:flex-row items-center gap-8">
+              {/* Text Content - 60% */}
+              <div className="lg:w-3/5 w-full">
+                <h3 className="text-lg font-semibold text-blue-900 mb-4">Voluntold Helps!</h3>
+                <p className="text-gray-700 italic mb-6">
+                  We make it easy to manage your projects, sign up sheets, and keep your members in sync. No more paper sign up sheets, no more confusion about who's doing what. Just simple, effective management of your community group.
+                  And, it's free for the first year. Let's get your group set up!
+                </p>
+                
+                {/* Call to Action Button */}
+                <button
+                  onClick={() => router.push('/join')}
+                  className="bg-white text-blue-600 border-2 border-blue-600 px-6 py-3 rounded-md hover:bg-blue-50 font-semibold transition-colors"
+                >
+                  Sign up Your Organization
+                </button>
+              </div>
+              
+              {/* Image - 40% */}
+              <div className="lg:w-2/5 w-full">
+                <Image
+                  src="/signups.png"
+                  alt="Sign up sheets management"
+                  width={400}
+                  height={300}
+                  className="w-full h-64 object-cover rounded-lg"
+                  priority={false}
+                />
+              </div>
+            </div>
           </div>
         </div>
+
+          
+           
+          
 
         {/* Feature Preview Cards */}
         <div className="mt-20 grid grid-cols-1 md:grid-cols-3 gap-8">
