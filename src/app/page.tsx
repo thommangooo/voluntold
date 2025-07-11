@@ -205,7 +205,7 @@ export default function HomePage() {
               </svg>
             </div>
             <h3 className="text-lg font-semibold text-gray-900 mb-2">Manage Sign Up Sheets</h3>
-            <p className="text-gray-600">Create & Manage sign-up sheets with ease. Whether it's a scheduled work shift or a one-off to-do,  volunteers can enroll with one click.  They can also change their commitments and keep the team updated.</p>
+            <p className="text-gray-600">Create & Manage sign-up sheets with ease. Whether it's a series of work party shifts or a one-off to-do,  volunteers can enroll with one click - right from their inbox.  They can also change their commitments and keep the team updated.</p>
           </div>
 
           <div className="bg-white rounded-lg shadow p-6">
