@@ -1,8 +1,9 @@
 // File: src/app/tenant/page.tsx
-// Version: 2.0 - Three-panel layout with improved scrolling
+// Version: 2.1 - Added bulk member upload functionality
 
 'use client'
 import Header from '../../components/Header'
+import BulkAddMembersModal from '../../components/BulkAddMembersModal'
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../../lib/supabase'
@@ -10,8 +11,7 @@ import { supabase } from '../../lib/supabase'
 interface TenantInfo {
   id: string
   name: string
-  slug: string        // Add this back
-  // owner_id: string // Remove this for now
+  slug: string
 }
 
 interface Project {
@@ -21,7 +21,7 @@ interface Project {
   status: 'active' | 'closed' | 'on_hold'
   goals: string | null
   created_at: string
-  total_hours?: number  // Add this line
+  total_hours?: number
   opportunities?: OpportunityWithStats[]
 }
 
@@ -76,7 +76,7 @@ interface Poll {
   total_responses: number
   created_at: string
   expires_at: string | null
-  last_emailed_at: string | null  // Add this line
+  last_emailed_at: string | null
 }
 
 interface PollResponse {
@@ -105,14 +105,14 @@ export default function TenantDashboard() {
   const [projectToClose, setProjectToClose] = useState<Project | null>(null)
   const [showAllResponses, setShowAllResponses] = useState(false)
   const [pollToClose, setPollToClose] = useState<Poll | null>(null)
+  const [showBulkAddModal, setShowBulkAddModal] = useState(false)
 
   const [newProject, setNewProject] = useState({
     name: '',
     description: '',
-    goals: ''  // Add this line
+    goals: ''
   })
 
-    // Polling state
   const [polls, setPolls] = useState<Poll[]>([])
   const [showPollForm, setShowPollForm] = useState(false)
   const [viewingPoll, setViewingPoll] = useState<Poll | null>(null)
@@ -128,7 +128,6 @@ export default function TenantDashboard() {
     expires_at: ''
   })
 
-
   const [newMember, setNewMember] = useState({
     email: '',
     firstName: '',
@@ -139,22 +138,21 @@ export default function TenantDashboard() {
     role: 'member'
   })
 
-    // Polling functions
-const loadPolls = async (tenantId: string) => {
-  try {
-    const { data, error } = await supabase
-      .from('polls')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .neq('status', 'closed')  // Add this line to exclude closed polls
-      .order('created_at', { ascending: false })
+  const loadPolls = async (tenantId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('polls')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .neq('status', 'closed')
+        .order('created_at', { ascending: false })
 
-    if (error) throw error
-    setPolls(data || [])
-  } catch (error) {
-    setMessage(`Error loading polls: ${(error as Error).message}`)
+      if (error) throw error
+      setPolls(data || [])
+    } catch (error) {
+      setMessage(`Error loading polls: ${(error as Error).message}`)
+    }
   }
-}
 
   const loadTenantData = useCallback(async () => {
     try {
@@ -165,7 +163,6 @@ const loadPolls = async (tenantId: string) => {
         return
       }
 
-      // Get user's profile first
       const { data: profile, error: profileError } = await supabase
         .from('user_profiles')
         .select('*')
@@ -179,7 +176,6 @@ const loadPolls = async (tenantId: string) => {
         return
       }
 
-      // Then get the tenant info separately
       const { data: tenant, error: tenantError } = await supabase
         .from('tenants')
         .select('id, name, slug')
@@ -189,11 +185,9 @@ const loadPolls = async (tenantId: string) => {
       if (tenantError) throw tenantError
 
       setTenantInfo(tenant)
-      
-      // Load projects and members
       await loadProjects(tenant.id)
       await loadMembers(tenant.id)
-      await loadPolls(tenant.id) 
+      await loadPolls(tenant.id)
 
     } catch (error) {
       setMessage(`Error: ${(error as Error).message}`)
@@ -202,98 +196,88 @@ const loadPolls = async (tenantId: string) => {
     }
   }, [router])
 
-  // Enhanced loadProjects function - replace your existing one
- const loadProjects = async (tenantId: string) => {
-  try {
-    // Get active projects with all fields including status and goals
-    const { data: projects, error: projectError } = await supabase
-      .from('projects')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .eq('status', 'active')
-      .order('created_at', { ascending: false })
+  const loadProjects = async (tenantId: string) => {
+    try {
+      const { data: projects, error: projectError } = await supabase
+        .from('projects')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .eq('status', 'active')
+        .order('created_at', { ascending: false })
 
-    if (projectError) throw projectError
+      if (projectError) throw projectError
 
-    // Get opportunities with signup counts and calculate total hours for each project
-    const projectsWithOpportunities = await Promise.all(
-      (projects || []).map(async (project) => {
-        // Get opportunities for this project with duration info
-        const { data: opportunities, error: oppError } = await supabase
-          .from('opportunities')
-          .select('id, title, volunteers_needed, duration_hours')
-          .eq('project_id', project.id)
-          .order('date_scheduled', { ascending: true })
+      const projectsWithOpportunities = await Promise.all(
+        (projects || []).map(async (project) => {
+          const { data: opportunities, error: oppError } = await supabase
+            .from('opportunities')
+            .select('id, title, volunteers_needed, duration_hours')
+            .eq('project_id', project.id)
+            .order('date_scheduled', { ascending: true })
 
-        if (oppError) throw oppError
+          if (oppError) throw oppError
 
-        // Calculate opportunity hours and get signup counts
-        let totalOpportunityHours = 0
-        const opportunitiesWithStats = await Promise.all(
-          (opportunities || []).map(async (opportunity) => {
-            const { count, error: countError } = await supabase
-              .from('signups')
-              .select('*', { count: 'exact', head: true })
-              .eq('opportunity_id', opportunity.id)
-              .eq('status', 'confirmed')
+          let totalOpportunityHours = 0
+          const opportunitiesWithStats = await Promise.all(
+            (opportunities || []).map(async (opportunity) => {
+              const { count, error: countError } = await supabase
+                .from('signups')
+                .select('*', { count: 'exact', head: true })
+                .eq('opportunity_id', opportunity.id)
+                .eq('status', 'confirmed')
 
-            if (countError) throw countError
+              if (countError) throw countError
 
-            const filled_count = count || 0
-            const volunteers_needed = opportunity.volunteers_needed || 1
-            const open_positions = Math.max(0, volunteers_needed - filled_count)
-            const duration_hours = opportunity.duration_hours || 0
+              const filled_count = count || 0
+              const volunteers_needed = opportunity.volunteers_needed || 1
+              const open_positions = Math.max(0, volunteers_needed - filled_count)
+              const duration_hours = opportunity.duration_hours || 0
 
-            // Calculate hours for this opportunity (signups * duration)
-            const opportunityHours = filled_count * duration_hours
-            totalOpportunityHours += opportunityHours
+              const opportunityHours = filled_count * duration_hours
+              totalOpportunityHours += opportunityHours
 
-            return {
-              id: opportunity.id,
-              title: opportunity.title,
-              volunteers_needed,
-              filled_count,
-              open_positions
-            }
-          })
-        )
+              return {
+                id: opportunity.id,
+                title: opportunity.title,
+                volunteers_needed,
+                filled_count,
+                open_positions
+              }
+            })
+          )
 
-        // Get additional hours for this project
-        const { data: additionalHours, error: hoursError } = await supabase
-          .from('additional_hours')
-          .select('hours_worked')
-          .eq('project_id', project.id)
+          const { data: additionalHours, error: hoursError } = await supabase
+            .from('additional_hours')
+            .select('hours_worked')
+            .eq('project_id', project.id)
 
-        if (hoursError) throw hoursError
+          if (hoursError) throw hoursError
 
-        // Sum additional hours
-        const totalAdditionalHours = (additionalHours || []).reduce(
-          (sum, record) => sum + (record.hours_worked || 0), 
-          0
-        )
+          const totalAdditionalHours = (additionalHours || []).reduce(
+            (sum, record) => sum + (record.hours_worked || 0), 
+            0
+          )
 
-        // Calculate total hours
-        const total_hours = totalOpportunityHours + totalAdditionalHours
+          const total_hours = totalOpportunityHours + totalAdditionalHours
 
-        // Return the complete project with proper typing
-        return {
-          id: project.id,
-          name: project.name,
-          description: project.description,
-          status: project.status,
-          goals: project.goals,
-          created_at: project.created_at,
-          total_hours,
-          opportunities: opportunitiesWithStats
-        } as Project
-      })
-    )
+          return {
+            id: project.id,
+            name: project.name,
+            description: project.description,
+            status: project.status,
+            goals: project.goals,
+            created_at: project.created_at,
+            total_hours,
+            opportunities: opportunitiesWithStats
+          } as Project
+        })
+      )
 
-    setProjects(projectsWithOpportunities)
-  } catch (error) {
-    setMessage(`Error loading projects: ${(error as Error).message}`)
+      setProjects(projectsWithOpportunities)
+    } catch (error) {
+      setMessage(`Error loading projects: ${(error as Error).message}`)
+    }
   }
-}
 
   const loadMembers = async (tenantId: string) => {
     try {
@@ -311,90 +295,90 @@ const loadPolls = async (tenantId: string) => {
   }
 
   const createProject = async (e: React.FormEvent) => {
-  e.preventDefault()
-  if (!tenantInfo) return
+    e.preventDefault()
+    if (!tenantInfo) return
 
-  setLoading(true)
-  setMessage('')
+    setLoading(true)
+    setMessage('')
 
-  try {
-    const { error } = await supabase
-      .from('projects')
-      .insert([
-        {
-          tenant_id: tenantInfo.id,
-          name: newProject.name,
-          description: newProject.description,
-          goals: newProject.goals || null,  // Add this line
-          status: 'active'  // Add this line
-        }
-      ])
+    try {
+      const { error } = await supabase
+        .from('projects')
+        .insert([
+          {
+            tenant_id: tenantInfo.id,
+            name: newProject.name,
+            description: newProject.description,
+            goals: newProject.goals || null,
+            status: 'active'
+          }
+        ])
 
-    if (error) throw error
+      if (error) throw error
 
-    setMessage(`Project "${newProject.name}" created successfully!`)
-    setNewProject({ name: '', description: '', goals: '' })  // Update this line
-    setShowProjectForm(false)
-    loadProjects(tenantInfo.id)
-  } catch (error) {
-    setMessage(`Error: ${(error as Error).message}`)
-  } finally {
-    setLoading(false)
+      setMessage(`Project "${newProject.name}" created successfully!`)
+      setNewProject({ name: '', description: '', goals: '' })
+      setShowProjectForm(false)
+      loadProjects(tenantInfo.id)
+    } catch (error) {
+      setMessage(`Error: ${(error as Error).message}`)
+    } finally {
+      setLoading(false)
+    }
   }
-}
 
-const updateProject = async (updatedData: any) => {
-  if (!editingProject || !tenantInfo) return
+  const updateProject = async (updatedData: any) => {
+    if (!editingProject || !tenantInfo) return
 
-  setLoading(true)
-  setMessage('')
+    setLoading(true)
+    setMessage('')
 
-  try {
-    const { error } = await supabase
-      .from('projects')
-      .update({
-        name: updatedData.name,
-        description: updatedData.description,
-        goals: updatedData.goals || null,
-        status: updatedData.status
-      })
-      .eq('id', editingProject.id)
+    try {
+      const { error } = await supabase
+        .from('projects')
+        .update({
+          name: updatedData.name,
+          description: updatedData.description,
+          goals: updatedData.goals || null,
+          status: updatedData.status
+        })
+        .eq('id', editingProject.id)
 
-    if (error) throw error
+      if (error) throw error
 
-    setMessage(`Project "${updatedData.name}" updated successfully!`)
-    setEditingProject(null)
-    loadProjects(tenantInfo.id)
-  } catch (error) {
-    setMessage(`Error: ${(error as Error).message}`)
-  } finally {
-    setLoading(false)
+      setMessage(`Project "${updatedData.name}" updated successfully!`)
+      setEditingProject(null)
+      loadProjects(tenantInfo.id)
+    } catch (error) {
+      setMessage(`Error: ${(error as Error).message}`)
+    } finally {
+      setLoading(false)
+    }
   }
-}
 
-const closeProject = async () => {
-  if (!projectToClose || !tenantInfo) return
+  const closeProject = async () => {
+    if (!projectToClose || !tenantInfo) return
 
-  setLoading(true)
-  setMessage('')
+    setLoading(true)
+    setMessage('')
 
-  try {
-    const { error } = await supabase
-      .from('projects')
-      .update({ status: 'closed' })
-      .eq('id', projectToClose.id)
+    try {
+      const { error } = await supabase
+        .from('projects')
+        .update({ status: 'closed' })
+        .eq('id', projectToClose.id)
 
-    if (error) throw error
+      if (error) throw error
 
-    setMessage(`Project "${projectToClose.name}" has been closed.`)
-    setProjectToClose(null)
-    loadProjects(tenantInfo.id)
-  } catch (error) {
-    setMessage(`Error: ${(error as Error).message}`)
-  } finally {
-    setLoading(false)
+      setMessage(`Project "${projectToClose.name}" has been closed.`)
+      setProjectToClose(null)
+      loadProjects(tenantInfo.id)
+    } catch (error) {
+      setMessage(`Error: ${(error as Error).message}`)
+    } finally {
+      setLoading(false)
+    }
   }
-}
 
   const addMember = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -497,10 +481,205 @@ const closeProject = async () => {
     }
   }
 
+  const sendPollEmails = async (pollId: string) => {
+    if (!tenantInfo) return
+
+    setLoading(true)
+    setMessage('Sending emails one at a time...hang tight.')
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.user) throw new Error('Not authenticated')
+
+      const response = await fetch('/api/send-poll-emails', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          pollId: pollId,
+          tenantId: tenantInfo.id,
+          userId: session.user.id
+        })
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to send emails')
+      }
+
+      setMessage(result.message)
+      if (result.failedEmails && result.failedEmails.length > 0) {
+        console.log('Failed emails:', result.failedEmails)
+      }
+      loadPolls(tenantInfo.id)
+    } catch (error) {
+      setMessage(`Error: ${(error as Error).message}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const createPoll = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!tenantInfo) return
+
+    setLoading(true)
+    setMessage('')
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.user) throw new Error('Not authenticated')
+
+      const pollOptions = newPoll.poll_type === 'multiple_choice' 
+        ? newPoll.options.filter(opt => opt.trim() !== '')
+        : null
+
+      const { data: poll, error: pollError } = await supabase
+        .from('polls')
+        .insert([
+          {
+            tenant_id: tenantInfo.id,
+            title: newPoll.title,
+            question: newPoll.question,
+            poll_type: newPoll.poll_type,
+            options: pollOptions,
+            is_anonymous: newPoll.is_anonymous,
+            expires_at: newPoll.expires_at || null,
+            created_by: session.user.id,
+            status: 'active'
+          }
+        ])
+        .select()
+        .single()
+
+      if (pollError) throw pollError
+
+      const { data: members, error: membersError } = await supabase
+        .from('user_profiles')
+        .select('email, first_name, last_name')
+        .eq('tenant_id', tenantInfo.id)
+
+      if (membersError) throw membersError
+
+      if (members && members.length > 0) {
+        const pollResponses = members.map(member => ({
+          poll_id: poll.id,
+          tenant_id: tenantInfo.id,
+          member_email: member.email,
+          member_name: `${member.first_name} ${member.last_name}`,
+          response: '',
+          response_token: crypto.randomUUID(),
+          responded_at: null
+        }))
+
+        const { error: responsesError } = await supabase
+          .from('poll_responses')
+          .insert(pollResponses)
+
+        if (responsesError) throw responsesError
+      }
+
+      setMessage(`Poll "${newPoll.title}" created successfully with ${members?.length || 0} member records!`)
+      setNewPoll({
+        title: '',
+        question: '',
+        poll_type: 'yes_no',
+        options: [''],
+        is_anonymous: false,
+        expires_at: ''
+      })
+      setShowPollForm(false)
+      loadPolls(tenantInfo.id)
+    } catch (error) {
+      setMessage(`Error: ${(error as Error).message}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadPollResponses = async (pollId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('poll_responses')
+        .select('*')
+        .eq('poll_id', pollId)
+        .order('responded_at', { ascending: false })
+
+      if (error) throw error
+      setPollResponses(data || [])
+    } catch (error) {
+      setMessage(`Error loading poll responses: ${(error as Error).message}`)
+    }
+  }
+
+  const updatePollStatus = async (pollId: string, newStatus: 'active' | 'closed') => {
+    setLoading(true)
+    try {
+      const { error } = await supabase
+        .from('polls')
+        .update({ status: newStatus })
+        .eq('id', pollId)
+
+      if (error) throw error
+
+      setMessage(`Poll ${newStatus === 'active' ? 'activated' : 'closed'} successfully!`)
+      if (tenantInfo) {
+        loadPolls(tenantInfo.id)
+      }
+    } catch (error) {
+      setMessage(`Error: ${(error as Error).message}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const updatePollResponse = async (responseId: string, newResponse: string) => {
+    if (!editingResponse) return
+
+    setLoading(true)
+    setMessage('')
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.user) throw new Error('Not authenticated')
+
+      const isNewResponse = !editingResponse.response || editingResponse.response.trim() === ''
+
+      const updateData: any = {
+        response: newResponse,
+        updated_by: session.user.id,
+        updated_at: new Date().toISOString()
+      }
+
+      if (isNewResponse) {
+        updateData.responded_at = new Date().toISOString()
+      }
+
+      const { error } = await supabase
+        .from('poll_responses')
+        .update(updateData)
+        .eq('id', responseId)
+
+      if (error) throw error
+
+      setMessage(isNewResponse ? 'Response recorded successfully!' : 'Response updated successfully!')
+      setEditingResponse(null)
+      if (viewingPoll) {
+        loadPollResponses(viewingPoll.id)
+      }
+    } catch (error) {
+      setMessage(`Error: ${(error as Error).message}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   useEffect(() => {
     loadTenantData()
   }, [loadTenantData])
-console.log('Members array:', members, 'Length:', members.length)
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -508,207 +687,6 @@ console.log('Members array:', members, 'Length:', members.length)
       </div>
     )
   }
-
-  const sendPollEmails = async (pollId: string) => {
-  if (!tenantInfo) return
-
-  setLoading(true)
-  setMessage('Sending emails one at a time...hang tight.')
-
-  try {
-    const { data: { session } } = await supabase.auth.getSession()
-    if (!session?.user) throw new Error('Not authenticated')
-
-    const response = await fetch('/api/send-poll-emails', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        pollId: pollId,
-        tenantId: tenantInfo.id,
-        userId: session.user.id
-      })
-    })
-
-    const result = await response.json()
-
-    if (!response.ok) {
-      throw new Error(result.error || 'Failed to send emails')
-    }
-
-    setMessage(result.message)
-    if (result.failedEmails && result.failedEmails.length > 0) {
-      console.log('Failed emails:', result.failedEmails)
-    }
-    loadPolls(tenantInfo.id)
-  } catch (error) {
-    setMessage(`Error: ${(error as Error).message}`)
-  } finally {
-    setLoading(false)
-  }
-}
-
-
-const createPoll = async (e: React.FormEvent) => {
-  e.preventDefault()
-  if (!tenantInfo) return
-
-  setLoading(true)
-  setMessage('')
-
-  try {
-    const { data: { session } } = await supabase.auth.getSession()
-    if (!session?.user) throw new Error('Not authenticated')
-
-    // Prepare options for multiple choice
-    const pollOptions = newPoll.poll_type === 'multiple_choice' 
-      ? newPoll.options.filter(opt => opt.trim() !== '')
-      : null
-
-    // Create the poll
-    const { data: poll, error: pollError } = await supabase
-      .from('polls')
-      .insert([
-        {
-          tenant_id: tenantInfo.id,
-          title: newPoll.title,
-          question: newPoll.question,
-          poll_type: newPoll.poll_type,
-          options: pollOptions,
-          is_anonymous: newPoll.is_anonymous,
-          expires_at: newPoll.expires_at || null,
-          created_by: session.user.id,
-          status: 'active'
-        }
-      ])
-      .select()
-      .single()
-
-    if (pollError) throw pollError
-
-    // Create poll response records for all members
-    const { data: members, error: membersError } = await supabase
-      .from('user_profiles')
-      .select('email, first_name, last_name')
-      .eq('tenant_id', tenantInfo.id)
-
-    if (membersError) throw membersError
-
-    if (members && members.length > 0) {
-      const pollResponses = members.map(member => ({
-        poll_id: poll.id,
-        tenant_id: tenantInfo.id,
-        member_email: member.email,
-        member_name: `${member.first_name} ${member.last_name}`,
-        response: '',
-        response_token: crypto.randomUUID(),
-        responded_at: null
-      }))
-
-      const { error: responsesError } = await supabase
-        .from('poll_responses')
-        .insert(pollResponses)
-
-      if (responsesError) throw responsesError
-    }
-
-    setMessage(`Poll "${newPoll.title}" created successfully with ${members?.length || 0} member records!`)
-    setNewPoll({
-      title: '',
-      question: '',
-      poll_type: 'yes_no',
-      options: [''],
-      is_anonymous: false,
-      expires_at: ''
-    })
-    setShowPollForm(false)
-    loadPolls(tenantInfo.id)
-  } catch (error) {
-    setMessage(`Error: ${(error as Error).message}`)
-  } finally {
-    setLoading(false)
-  }
-}
-
-const loadPollResponses = async (pollId: string) => {
-  try {
-    const { data, error } = await supabase
-      .from('poll_responses')
-      .select('*')
-      .eq('poll_id', pollId)
-      .order('responded_at', { ascending: false })
-
-    if (error) throw error
-    setPollResponses(data || [])
-  } catch (error) {
-    setMessage(`Error loading poll responses: ${(error as Error).message}`)
-  }
-}
-
-const updatePollStatus = async (pollId: string, newStatus: 'active' | 'closed') => {
-  setLoading(true)
-  try {
-    const { error } = await supabase
-      .from('polls')
-      .update({ status: newStatus })
-      .eq('id', pollId)
-
-    if (error) throw error
-
-    setMessage(`Poll ${newStatus === 'active' ? 'activated' : 'closed'} successfully!`)
-    if (tenantInfo) {
-      loadPolls(tenantInfo.id)
-    }
-  } catch (error) {
-    setMessage(`Error: ${(error as Error).message}`)
-  } finally {
-    setLoading(false)
-  }
-}
-
-const updatePollResponse = async (responseId: string, newResponse: string) => {
-  if (!editingResponse) return
-
-  setLoading(true)
-  setMessage('')
-
-  try {
-    const { data: { session } } = await supabase.auth.getSession()
-    if (!session?.user) throw new Error('Not authenticated')
-
-    // Check if this is a new response or an update
-    const isNewResponse = !editingResponse.response || editingResponse.response.trim() === ''
-
-    const updateData: any = {
-      response: newResponse,
-      updated_by: session.user.id,
-      updated_at: new Date().toISOString()
-    }
-
-    // If it's a new response, also set responded_at
-    if (isNewResponse) {
-      updateData.responded_at = new Date().toISOString()
-    }
-
-    const { error } = await supabase
-      .from('poll_responses')
-      .update(updateData)
-      .eq('id', responseId)
-
-    if (error) throw error
-
-    setMessage(isNewResponse ? 'Response recorded successfully!' : 'Response updated successfully!')
-    setEditingResponse(null)
-    if (viewingPoll) {
-      loadPollResponses(viewingPoll.id)
-    }
-  } catch (error) {
-    setMessage(`Error: ${(error as Error).message}`)
-  } finally {
-    setLoading(false)
-  }
-}
 
   if (!tenantInfo) {
     return (
@@ -722,1179 +700,1186 @@ const updatePollResponse = async (responseId: string, newResponse: string) => {
   }
 
   return (
-  <>
-    <Header />
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold mb-2">{tenantInfo.name} Dashboard</h1>
-          <p className="text-gray-600">Manage your projects and team members</p>
-        </div>
-
-        {/* Message Display */}
-        {message && (
-          <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-md">
-            <p className="text-blue-800">{message}</p>
+    <>
+      <Header />
+      <div className="min-h-screen bg-gray-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          {/* Header */}
+          <div className="mb-8">
+            <h1 className="text-3xl font-bold mb-2">{tenantInfo.name} Dashboard</h1>
+            <p className="text-gray-600">Manage your projects and team members</p>
           </div>
-        )}
 
-        {/* 3-Panel Grid Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          
-          {/* Projects Panel */}
-          <div className="bg-white rounded-lg shadow flex flex-col h-[calc(100vh-300px)]">
-            <div className="px-6 py-4 border-b flex-shrink-0">
-              <div className="flex justify-between items-center">
-                <h2 className="text-xl font-semibold">Projects ({projects.length})</h2>
-                <button
-                  onClick={() => setShowProjectForm(!showProjectForm)}
-                  className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
-                >
-                  {showProjectForm ? 'Hide Form' : 'Create Project'}
-                </button>
+          {/* Message Display */}
+          {message && (
+            <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-md">
+              <p className="text-blue-800">{message}</p>
+            </div>
+          )}
+
+          {/* 3-Panel Grid Layout */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            {/* Projects Panel */}
+            <div className="bg-white rounded-lg shadow flex flex-col h-[calc(100vh-300px)]">
+              <div className="px-6 py-4 border-b flex-shrink-0">
+                <div className="flex justify-between items-center">
+                  <h2 className="text-xl font-semibold">Projects ({projects.length})</h2>
+                  <button
+                    onClick={() => setShowProjectForm(!showProjectForm)}
+                    className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
+                  >
+                    {showProjectForm ? 'Hide Form' : 'Create Project'}
+                  </button>
+                </div>
+              </div>
+
+              {showProjectForm && (
+                <div className="p-6 border-b bg-gray-50 flex-shrink-0">
+                  <form onSubmit={createProject} className="space-y-4">
+                    <div>
+                      <label htmlFor="projectName" className="block text-sm font-medium text-gray-700">
+                        Project Name
+                      </label>
+                      <input
+                        type="text"
+                        id="projectName"
+                        value={newProject.name}
+                        onChange={(e) => setNewProject({ ...newProject, name: e.target.value })}
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label htmlFor="projectDescription" className="block text-sm font-medium text-gray-700">
+                        Description
+                      </label>
+                      <textarea
+                        id="projectDescription"
+                        value={newProject.description}
+                        onChange={(e) => setNewProject({ ...newProject, description: e.target.value })}
+                        rows={3}
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label htmlFor="projectGoals" className="block text-sm font-medium text-gray-700">
+                        Goals & Objectives
+                      </label>
+                      <textarea
+                        id="projectGoals"
+                        value={newProject.goals}
+                        onChange={(e) => setNewProject({ ...newProject, goals: e.target.value })}
+                        rows={3}
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                        placeholder="What are the main goals and expected outcomes for this project?"
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {loading ? 'Creating...' : 'Create Project'}
+                    </button>
+                  </form>
+                </div>
+              )}
+
+              <div className="p-6 flex-1 overflow-hidden">
+                {projects.length === 0 ? (
+                  <p className="text-gray-500 text-center py-8">No projects yet. Create your first project to get started!</p>
+                ) : (
+                  <div className="h-full overflow-y-auto space-y-4 pr-2">
+                    {projects.map((project) => (
+                      <div key={project.id} className="border rounded-lg p-4 hover:shadow-sm transition-shadow relative">
+                        <button
+                          onClick={() => setProjectToClose(project)}
+                          className="absolute top-2 right-2 text-gray-400 hover:text-red-500 text-lg font-bold w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-100"
+                          title="Close project"
+                        >
+                          ×
+                        </button>
+                        
+                        <h3 className="font-semibold text-lg mb-2 pr-8">{project.name}</h3>
+                        {project.description && (
+                          <p className="text-gray-600 mb-3">{project.description}</p>
+                        )}
+                        
+                        {project.opportunities && project.opportunities.length > 0 ? (
+                          <div className="mb-4">
+                            <h4 className="text-sm font-medium text-gray-700 mb-2">Sign-Up Sheets:</h4>
+                            <div className="space-y-2">
+                              {project.opportunities.map((opportunity) => (
+                                <div key={opportunity.id} className="bg-gray-50 rounded p-3">
+                                  <div className="flex justify-between items-start">
+                                    <div className="flex-1">
+                                      <span className="text-sm font-medium text-gray-900">{opportunity.title}</span>
+                                    </div>
+                                    <div className="text-right ml-3">
+                                      <div className="text-sm">
+                                        <span className="text-green-600 font-medium">{opportunity.filled_count}</span>
+                                        <span className="text-gray-500"> / </span>
+                                        <span className="text-gray-900">{opportunity.volunteers_needed}</span>
+                                        <span className="text-gray-500 text-xs ml-1">filled</span>
+                                      </div>
+                                      {opportunity.open_positions > 0 ? (
+                                        <div className="text-xs text-orange-600">
+                                          {opportunity.open_positions} positions open
+                                        </div>
+                                      ) : (
+                                        <div className="text-xs text-green-600">Fully staffed</div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="mb-4 text-sm text-gray-500">No Sign-up Sheets created yet</div>
+                        )}
+
+                        <div className="mb-4 p-3 bg-blue-50 rounded-lg">
+                          <div className="flex justify-between items-center">
+                            <span className="text-sm font-medium text-blue-900">Total Volunteer Hours</span>
+                            <span className="text-lg font-bold text-blue-900">
+                              {project.total_hours?.toFixed(1) || '0.0'} hrs
+                            </span>
+                          </div>
+                          {project.total_hours && project.total_hours > 0 && (
+                            <div className="text-xs text-blue-700 mt-1">
+                              From {project.opportunities?.length || 0} opportunities + additional hours
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex justify-end gap-2">
+                          <button
+                            onClick={() => setEditingProject(project)}
+                            className="text-green-600 hover:text-green-800 font-medium cursor-pointer text-sm"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => router.push(`/tenant/projects/${project.id}`)}
+                            className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
+                          >
+                            View Details →
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 
-            {showProjectForm && (
-              <div className="p-6 border-b bg-gray-50 flex-shrink-0">
-                <form onSubmit={createProject} className="space-y-4">
+            {/* Polls Panel */}
+            <div className="bg-white rounded-lg shadow flex flex-col h-[calc(100vh-300px)]">
+              <div className="px-6 py-4 border-b flex-shrink-0">
+                <div className="flex justify-between items-center">
+                  <h2 className="text-xl font-semibold">Active Polls ({polls.length})</h2>
+                  <button
+                    onClick={() => setShowPollForm(!showPollForm)}
+                    className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
+                  >
+                    {showPollForm ? 'Hide Form' : 'Create Poll'}
+                  </button>
+                </div>
+              </div>
+
+              {showPollForm && (
+                <div className="p-6 border-b bg-gray-50 flex-shrink-0">
+                  <form onSubmit={createPoll} className="space-y-4">
+                    <div className="grid grid-cols-1 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700">Poll Title</label>
+                        <input
+                          type="text"
+                          value={newPoll.title}
+                          onChange={(e) => setNewPoll({ ...newPoll, title: e.target.value })}
+                          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                          placeholder="e.g., Annual Picnic Location"
+                          required
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700">Poll Type</label>
+                        <select
+                          value={newPoll.poll_type}
+                          onChange={(e) => setNewPoll({ ...newPoll, poll_type: e.target.value as 'yes_no' | 'multiple_choice' })}
+                          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                        >
+                          <option value="yes_no">Yes/No</option>
+                          <option value="multiple_choice">Multiple Choice</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700">Question</label>
+                      <textarea
+                        value={newPoll.question}
+                        onChange={(e) => setNewPoll({ ...newPoll, question: e.target.value })}
+                        rows={3}
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                        placeholder="What would you like to ask your members?"
+                        required
+                      />
+                    </div>
+
+                    {newPoll.poll_type === 'multiple_choice' && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700">Options</label>
+                        {newPoll.options.map((option, index) => (
+                          <div key={index} className="flex gap-2 mt-2">
+                            <input
+                              type="text"
+                              value={option}
+                              onChange={(e) => {
+                                const newOptions = [...newPoll.options]
+                                newOptions[index] = e.target.value
+                                setNewPoll({ ...newPoll, options: newOptions })
+                              }}
+                              className="flex-1 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                              placeholder={`Option ${index + 1}`}
+                            />
+                            {index > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const newOptions = newPoll.options.filter((_, i) => i !== index)
+                                  setNewPoll({ ...newPoll, options: newOptions })
+                                }}
+                                className="text-red-600 hover:text-red-800"
+                              >
+                                Remove
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => setNewPoll({ ...newPoll, options: [...newPoll.options, ''] })}
+                          className="mt-2 text-blue-600 hover:text-blue-800 text-sm"
+                        >
+                          + Add Option
+                        </button>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 gap-4">
+                      <div>
+                        <label className="flex items-center">
+                          <input
+                            type="checkbox"
+                            checked={newPoll.is_anonymous}
+                            onChange={(e) => setNewPoll({ ...newPoll, is_anonymous: e.target.checked })}
+                            className="mr-2"
+                          />
+                          Anonymous responses
+                        </label>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700">Expires (Optional)</label>
+                        <input
+                          type="datetime-local"
+                          value={newPoll.expires_at}
+                          onChange={(e) => setNewPoll({ ...newPoll, expires_at: e.target.value })}
+                          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                        />
+                      </div>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="bg-blue-600 text-white py-2 px-6 rounded-md hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {loading ? 'Creating...' : 'Create Poll'}
+                    </button>
+                  </form>
+                </div>
+              )}
+
+              <div className="p-6 flex-1 overflow-hidden">
+                {polls.length === 0 ? (
+                  <p className="text-gray-500 text-center py-8">No polls yet. Create your first poll to get member feedback!</p>
+                ) : (
+                  <div className="h-full overflow-y-auto space-y-4 pr-2">
+                    {polls.map((poll) => (
+                      <div key={poll.id} className="border rounded-lg p-4 hover:shadow-sm transition-shadow relative">
+                        <button
+                          onClick={() => setPollToClose(poll)}
+                          className="absolute top-2 right-2 text-gray-400 hover:text-red-500 text-lg font-bold w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-100"
+                          title="Close poll"
+                        >
+                          ×
+                        </button>
+                        
+                        <div className="flex justify-between items-start mb-3">
+                          <div className="flex-1 pr-8">
+                            <h3 className="font-semibold text-lg">{poll.title}</h3>
+                            <p className="text-gray-600 mt-1">{poll.question}</p>
+                            <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
+                              <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                                poll.status === 'active' ? 'bg-green-100 text-green-800' :
+                                poll.status === 'closed' ? 'bg-gray-100 text-gray-800' :
+                                'bg-yellow-100 text-yellow-800'
+                              }`}>
+                                {poll.status}
+                              </span>
+                              <span>{poll.poll_type === 'yes_no' ? 'Yes/No' : 'Multiple Choice'}</span>
+                              {poll.is_anonymous && <span>Anonymous</span>}
+                              <span>{poll.total_responses} responses</span>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div className="flex gap-2 mb-4">
+                          <button
+                            onClick={() => sendPollEmails(poll.id)}
+                            className="text-purple-600 hover:text-purple-800 font-medium cursor-pointer text-sm"
+                          >
+                            Email Members
+                          </button>
+                          <button
+                            onClick={() => {
+                              setViewingPoll(poll)
+                              loadPollResponses(poll.id)
+                            }}
+                            className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
+                          >
+                            View Results →
+                          </button>
+                        </div>
+                        
+                        <div className="pt-3 border-t border-gray-200 text-right">
+                          <span className="text-xs text-gray-500">
+                            {poll.last_emailed_at 
+                              ? `Last emailed: ${new Date(poll.last_emailed_at).toLocaleDateString()}`
+                              : 'Never emailed'
+                            }
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Members Panel */}
+            <div className="bg-white rounded-lg shadow flex flex-col h-[calc(100vh-300px)]">
+              <div className="px-6 py-4 border-b flex-shrink-0">
+                <div className="flex justify-between items-center">
+                  <h2 className="text-xl font-semibold">Members ({members.length})</h2>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setShowBulkAddModal(true)}
+                      className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
+                    >
+                      Bulk Add
+                    </button>
+                    <button
+                      onClick={() => setShowMemberForm(!showMemberForm)}
+                      className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
+                    >
+                      {showMemberForm ? 'Hide Form' : 'Add Member'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {showMemberForm && (
+                <div className="p-6 border-b bg-gray-50 flex-shrink-0">
+                  <form onSubmit={addMember} className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+                          Email *
+                        </label>
+                        <input
+                          type="email"
+                          id="email"
+                          value={newMember.email}
+                          onChange={(e) => setNewMember({ ...newMember, email: e.target.value })}
+                          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                          required
+                        />
+                      </div>
+
+                      <div>
+                        <label htmlFor="phoneNumber" className="block text-sm font-medium text-gray-700">
+                          Phone Number
+                        </label>
+                        <input
+                          type="tel"
+                          id="phoneNumber"
+                          value={newMember.phoneNumber}
+                          onChange={(e) => setNewMember({ ...newMember, phoneNumber: e.target.value })}
+                          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                          placeholder="(555) 123-4567"
+                        />
+                      </div>
+
+                      <div>
+                        <label htmlFor="firstName" className="block text-sm font-medium text-gray-700">
+                          First Name *
+                        </label>
+                        <input
+                          type="text"
+                          id="firstName"
+                          value={newMember.firstName}
+                          onChange={(e) => setNewMember({ ...newMember, firstName: e.target.value })}
+                          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                          required
+                        />
+                      </div>
+
+                      <div>
+                        <label htmlFor="lastName" className="block text-sm font-medium text-gray-700">
+                          Last Name *
+                        </label>
+                        <input
+                          type="text"
+                          id="lastName"
+                          value={newMember.lastName}
+                          onChange={(e) => setNewMember({ ...newMember, lastName: e.target.value })}
+                          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                          required
+                        />
+                      </div>
+
+                      <div>
+                        <label htmlFor="position" className="block text-sm font-medium text-gray-700">
+                          Position/Status
+                        </label>
+                        <input
+                          type="text"
+                          id="position"
+                          value={newMember.position}
+                          onChange={(e) => setNewMember({ ...newMember, position: e.target.value })}
+                          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                          placeholder="e.g., Member, Life Member, Volunteer"
+                        />
+                      </div>
+
+                      <div className="md:col-span-2">
+                        <label htmlFor="address" className="block text-sm font-medium text-gray-700">
+                          Address
+                        </label>
+                        <textarea
+                          id="address"
+                          rows={2}
+                          value={newMember.address}
+                          onChange={(e) => setNewMember({ ...newMember, address: e.target.value })}
+                          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                          placeholder="Street address, city, postal code"
+                        />
+                      </div>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="bg-blue-600 text-white py-2 px-6 rounded-md hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {loading ? 'Adding...' : 'Add Member'}
+                    </button>
+                  </form>
+                </div>
+              )}
+
+              <div className="p-6 flex-1 overflow-hidden">
+                {members.length === 0 ? (
+                  <p className="text-gray-500 text-center py-8">No members yet. Add your first team member!</p>
+                ) : (
+                  <div className="h-full overflow-y-auto space-y-4 pr-2">
+                    {members.map((member) => (
+                      <div key={member.id} className="border rounded-lg p-4 hover:shadow-sm transition-shadow relative">
+                        <button
+                          onClick={() => setDeletingMember(member)}
+                          className="absolute top-2 right-2 text-gray-400 hover:text-red-500 text-lg font-bold w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-100"
+                          title="Delete member"
+                        >
+                          ×
+                        </button>
+                        
+                        <div className="flex justify-between items-start">
+                          <div className="flex-1 pr-8">
+                            <div className="mb-2">
+                              <button
+                                onClick={() => setEditingMember(member)}
+                                className="text-lg font-semibold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                                title="Click to edit member"
+                              >
+                                {member.first_name} {member.last_name}
+                              </button>
+                            </div>
+                            
+                            <div className="grid grid-cols-1 gap-2 text-sm text-gray-600">
+                              <div>
+                                {member.email}
+                              </div>
+                              <div>
+                                {member.phone_number || '—'}
+                              </div>
+                            </div>
+                            
+                            {member.address && (
+                              <div className="mt-2 text-sm text-gray-600">
+                                {member.address}
+                              </div>
+                            )}
+                            
+                            <div className="mt-2 flex items-center gap-2">
+                              {member.position && (
+                                <span className="text-xs text-gray-400">
+                                  {member.position}
+                                </span>
+                              )}
+                              {member.position && (
+                                <span className="text-xs text-gray-300">•</span>
+                              )}
+                              <span className="text-xs text-gray-400">
+                                {member.role === 'tenant_admin' ? 'admin' : 'member'}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Edit Member Modal */}
+          {editingMember && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-screen overflow-y-auto">
+                <h3 className="text-lg font-semibold mb-4">Edit Member</h3>
+                
+                <form onSubmit={(e) => {
+                  e.preventDefault()
+                  const formData = new FormData(e.target as HTMLFormElement)
+                  updateMember({
+                    firstName: formData.get('firstName'),
+                    lastName: formData.get('lastName'),
+                    email: formData.get('email'),
+                    phoneNumber: formData.get('phoneNumber'),
+                    position: formData.get('position'),
+                    address: formData.get('address'),
+                    role: formData.get('role')
+                  })
+                }} className="space-y-4">
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700">First Name *</label>
+                      <input
+                        type="text"
+                        name="firstName"
+                        defaultValue={editingMember.first_name}
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                        required
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700">Last Name *</label>
+                      <input
+                        type="text"
+                        name="lastName"
+                        defaultValue={editingMember.last_name}
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                        required
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700">Email *</label>
+                      <input
+                        type="email"
+                        name="email"
+                        defaultValue={editingMember.email}
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                        required
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700">Phone Number</label>
+                      <input
+                        type="tel"
+                        name="phoneNumber"
+                        defaultValue={editingMember.phone_number || ''}
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700">Position/Status</label>
+                      <input
+                        type="text"
+                        name="position"
+                        defaultValue={editingMember.position || ''}
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                        placeholder="e.g., Member, Life Member"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700">Role</label>
+                      <select
+                        name="role"
+                        defaultValue={editingMember.role}
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                      >
+                        <option value="member">Member</option>
+                        <option value="tenant_admin">Admin</option>
+                      </select>
+                    </div>
+                  </div>
+                  
                   <div>
-                    <label htmlFor="projectName" className="block text-sm font-medium text-gray-700">
-                      Project Name
-                    </label>
+                    <label className="block text-sm font-medium text-gray-700">Address</label>
+                    <textarea
+                      name="address"
+                      rows={3}
+                      defaultValue={editingMember.address || ''}
+                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                      placeholder="Street address, city, postal code"
+                    />
+                  </div>
+                  
+                  <div className="flex justify-end space-x-3">
+                    <button
+                      type="button"
+                      onClick={() => setEditingMember(null)}
+                      className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {loading ? 'Saving...' : 'Save Changes'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Delete Member Confirmation Modal */}
+          {deletingMember && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg p-6 w-full max-w-md">
+                <h3 className="text-lg font-semibold mb-4">Delete Member</h3>
+                <p className="text-gray-600 mb-6">
+                  Are you sure you want to delete <strong>{deletingMember.first_name} {deletingMember.last_name}</strong>? 
+                  This action cannot be undone.
+                </p>
+                
+                <div className="flex justify-end space-x-3">
+                  <button
+                    onClick={() => setDeletingMember(null)}
+                    className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={deleteMember}
+                    disabled={loading}
+                    className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
+                  >
+                    {loading ? 'Deleting...' : 'Delete Member'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Edit Project Modal */}
+          {editingProject && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-screen overflow-y-auto">
+                <h3 className="text-lg font-semibold mb-4">Edit Project</h3>
+                
+                <form onSubmit={(e) => {
+                  e.preventDefault()
+                  const formData = new FormData(e.target as HTMLFormElement)
+                  updateProject({
+                    name: formData.get('name'),
+                    description: formData.get('description'),
+                    goals: formData.get('goals'),
+                    status: formData.get('status')
+                  })
+                }} className="space-y-4">
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Project Name *</label>
                     <input
                       type="text"
-                      id="projectName"
-                      value={newProject.name}
-                      onChange={(e) => setNewProject({ ...newProject, name: e.target.value })}
+                      name="name"
+                      defaultValue={editingProject.name}
                       className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                       required
                     />
                   </div>
-
+                  
                   <div>
-                    <label htmlFor="projectDescription" className="block text-sm font-medium text-gray-700">
-                      Description
-                    </label>
+                    <label className="block text-sm font-medium text-gray-700">Description</label>
                     <textarea
-                      id="projectDescription"
-                      value={newProject.description}
-                      onChange={(e) => setNewProject({ ...newProject, description: e.target.value })}
+                      name="description"
                       rows={3}
+                      defaultValue={editingProject.description}
                       className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                     />
                   </div>
-
+                  
                   <div>
-                    <label htmlFor="projectGoals" className="block text-sm font-medium text-gray-700">
-                      Goals & Objectives
-                    </label>
+                    <label className="block text-sm font-medium text-gray-700">Goals & Objectives</label>
                     <textarea
-                      id="projectGoals"
-                      value={newProject.goals}
-                      onChange={(e) => setNewProject({ ...newProject, goals: e.target.value })}
+                      name="goals"
                       rows={3}
+                      defaultValue={editingProject.goals || ''}
                       className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                      placeholder="What are the main goals and expected outcomes for this project?"
+                      placeholder="What are the main goals and expected outcomes?"
                     />
                   </div>
-
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    {loading ? 'Creating...' : 'Create Project'}
-                  </button>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Status</label>
+                    <select
+                      name="status"
+                      defaultValue={editingProject.status}
+                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                    >
+                      <option value="active">Active</option>
+                      <option value="on_hold">On Hold</option>
+                      <option value="closed">Closed</option>
+                    </select>
+                  </div>
+                  
+                  <div className="flex justify-end space-x-3">
+                    <button
+                      type="button"
+                      onClick={() => setEditingProject(null)}
+                      className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {loading ? 'Saving...' : 'Save Changes'}
+                    </button>
+                  </div>
                 </form>
               </div>
-            )}
+            </div>
+          )}
 
-            <div className="p-6 flex-1 overflow-hidden">
-              {projects.length === 0 ? (
-                <p className="text-gray-500 text-center py-8">No projects yet. Create your first project to get started!</p>
-              ) : (
-                <div className="h-full overflow-y-auto space-y-4 pr-2">
-                  {projects.map((project) => (
-                    <div key={project.id} className="border rounded-lg p-4 hover:shadow-sm transition-shadow relative">
-                      {/* Close X in top right corner */}
-                      <button
-                        onClick={() => setProjectToClose(project)}
-                        className="absolute top-2 right-2 text-gray-400 hover:text-red-500 text-lg font-bold w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-100"
-                        title="Close project"
-                      >
-                        ×
-                      </button>
-                      
-                      <h3 className="font-semibold text-lg mb-2 pr-8">{project.name}</h3>
-                      {project.description && (
-                        <p className="text-gray-600 mb-3">{project.description}</p>
+          {/* Poll Results Modal */}
+          {viewingPoll && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-screen overflow-y-auto">
+                <div className="flex justify-between items-start mb-6">
+                  <div>
+                    <h3 className="text-lg font-semibold">{viewingPoll.title}</h3>
+                    <p className="text-gray-600 mt-1">{viewingPoll.question}</p>
+                    <div className="flex items-center gap-4 mt-2 text-sm">
+                      <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                        viewingPoll.status === 'active' ? 'bg-green-100 text-green-800' :
+                        viewingPoll.status === 'closed' ? 'bg-gray-100 text-gray-800' :
+                        'bg-yellow-100 text-yellow-800'
+                      }`}>
+                        {viewingPoll.status}
+                      </span>
+                      <span className="text-gray-500">{viewingPoll.poll_type === 'yes_no' ? 'Yes/No' : 'Multiple Choice'}</span>
+                      {viewingPoll.is_anonymous && <span className="text-gray-500">Anonymous</span>}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setViewingPoll(null)
+                      setPollResponses([])
+                      setShowAllResponses(false)
+                    }}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* Response Summary */}
+                {(() => {
+                  const actualVotes = pollResponses.filter(r => r.response && r.response.trim() !== '')
+                  const totalSent = pollResponses.length
+                  return (
+                    <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+                      <h4 className="font-medium mb-3">
+                        Response Summary ({actualVotes.length} of {totalSent} members voted)
+                      </h4>
+                      {actualVotes.length > 0 ? (
+                        <div className="space-y-2">
+                          {viewingPoll.poll_type === 'yes_no' ? (
+                            <>
+                              {['Yes', 'No'].map((option) => {
+                                const count = actualVotes.filter(r => r.response === option).length
+                                const percentage = actualVotes.length > 0 ? (count / actualVotes.length * 100).toFixed(1) : 0
+                                return (
+                                  <div key={option} className="flex items-center gap-3">
+                                    <span className="w-12 text-sm font-medium">{option}:</span>
+                                    <div className="flex-1 bg-gray-200 rounded-full h-3">
+                                      <div 
+                                        className={`h-3 rounded-full ${option === 'Yes' ? 'bg-green-500' : 'bg-red-500'}`}
+                                        style={{ width: `${percentage}%` }}
+                                      ></div>
+                                    </div>
+                                    <span className="text-sm text-gray-600">{count} ({percentage}%)</span>
+                                  </div>
+                                )
+                              })}
+                            </>
+                          ) : (
+                            <>
+                              {viewingPoll.options?.map((option) => {
+                                const count = actualVotes.filter(r => r.response === option).length
+                                const percentage = actualVotes.length > 0 ? (count / actualVotes.length * 100).toFixed(1) : 0
+                                return (
+                                  <div key={option} className="flex items-center gap-3">
+                                    <span className="w-24 text-sm font-medium truncate">{option}:</span>
+                                    <div className="flex-1 bg-gray-200 rounded-full h-3">
+                                      <div 
+                                        className="h-3 rounded-full bg-blue-500"
+                                        style={{ width: `${percentage}%` }}
+                                      ></div>
+                                    </div>
+                                    <span className="text-sm text-gray-600">{count} ({percentage}%)</span>
+                                  </div>
+                                )
+                              }) || []}
+                            </>
+                          )}
+                          <div className="mt-3 pt-3 border-t border-gray-200">
+                            <div className="flex items-center gap-3">
+                              <span className="w-24 text-sm font-medium text-gray-700">Participation:</span>
+                              <div className="flex-1 bg-gray-200 rounded-full h-3">
+                                <div 
+                                  className="h-3 rounded-full bg-purple-500"
+                                  style={{ width: `${totalSent > 0 ? (actualVotes.length / totalSent * 100).toFixed(1) : 0}%` }}
+                                ></div>
+                              </div>
+                              <span className="text-sm text-gray-600">
+                                {totalSent > 0 ? (actualVotes.length / totalSent * 100).toFixed(1) : 0}% of members
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-gray-500 text-center py-4">No votes received yet.</p>
                       )}
-                      
-                      {/* Opportunities List */}
-                      {project.opportunities && project.opportunities.length > 0 ? (
-                        <div className="mb-4">
-                          <h4 className="text-sm font-medium text-gray-700 mb-2">Sign-Up Sheets:</h4>
-                          <div className="space-y-2">
-                            {project.opportunities.map((opportunity) => (
-                              <div key={opportunity.id} className="bg-gray-50 rounded p-3">
+                    </div>
+                  )
+                })()}
+
+                {/* Individual Responses */}
+                <div>
+                  <h4 className="font-medium mb-3">
+                    {viewingPoll.is_anonymous ? 'Anonymous Responses' : 'Member Responses'}
+                  </h4>
+                  {(() => {
+                    const actualVotes = pollResponses.filter(r => r.response && r.response.trim() !== '')
+                    const pendingVotes = pollResponses.filter(r => !r.response || r.response.trim() === '')
+                    
+                    const sortedVotes = actualVotes.sort((a, b) => {
+                      if (a.response === b.response) {
+                        return a.member_name.localeCompare(b.member_name)
+                      }
+                      return a.response.localeCompare(b.response)
+                    })
+
+                    const sortedPending = pendingVotes.sort((a, b) => a.member_name.localeCompare(b.member_name))
+                    
+                    return (
+                      <>
+                        {actualVotes.length === 0 ? (
+                          <p className="text-gray-500 text-center py-8">No responses yet.</p>
+                        ) : (
+                          <div className="space-y-3">
+                            {sortedVotes.map((response) => (
+                              <div key={response.id} className="border rounded-lg p-4">
                                 <div className="flex justify-between items-start">
                                   <div className="flex-1">
-                                    <span className="text-sm font-medium text-gray-900">{opportunity.title}</span>
-                                  </div>
-                                  <div className="text-right ml-3">
-                                    <div className="text-sm">
-                                      <span className="text-green-600 font-medium">{opportunity.filled_count}</span>
-                                      <span className="text-gray-500"> / </span>
-                                      <span className="text-gray-900">{opportunity.volunteers_needed}</span>
-                                      <span className="text-gray-500 text-xs ml-1">filled</span>
+                                    <div className="flex items-center gap-3 mb-1">
+                                      {!viewingPoll.is_anonymous && (
+                                        <span className="font-medium">{response.member_name}</span>
+                                      )}
+                                      <span className={`px-2 py-1 text-sm font-medium rounded ${
+                                        response.response === 'Yes' ? 'bg-green-100 text-green-800' :
+                                        response.response === 'No' ? 'bg-red-100 text-red-800' :
+                                        'bg-blue-100 text-blue-800'
+                                      }`}>
+                                        {response.response}
+                                      </span>
                                     </div>
-                                    {opportunity.open_positions > 0 ? (
-                                      <div className="text-xs text-orange-600">
-                                        {opportunity.open_positions} positions open
-                                      </div>
-                                    ) : (
-                                      <div className="text-xs text-green-600">Fully staffed</div>
-                                    )}
+                                    <div className="text-xs text-gray-500">
+                                      {new Date(response.responded_at).toLocaleString()}
+                                      {response.updated_at && (
+                                        <span className="ml-2">(Edited by admin)</span>
+                                      )}
+                                    </div>
                                   </div>
+                                  
+                                  {!viewingPoll.is_anonymous && (
+                                    <button
+                                      onClick={() => setEditingResponse(response)}
+                                      className="text-blue-600 hover:text-blue-800 text-sm font-medium cursor-pointer"
+                                    >
+                                      Edit
+                                    </button>
+                                  )}
                                 </div>
                               </div>
                             ))}
                           </div>
-                        </div>
-                       ) : (
-                            <div className="mb-4 text-sm text-gray-500">No Sign-up Sheets created yet</div>
-                          )}
-
-                          {/* Total Hours Display */}
-                          <div className="mb-4 p-3 bg-blue-50 rounded-lg">
-                            <div className="flex justify-between items-center">
-                              <span className="text-sm font-medium text-blue-900">Total Volunteer Hours</span>
-                              <span className="text-lg font-bold text-blue-900">
-                                {project.total_hours?.toFixed(1) || '0.0'} hrs
-                              </span>
-                            </div>
-                            {project.total_hours && project.total_hours > 0 && (
-                              <div className="text-xs text-blue-700 mt-1">
-                                From {project.opportunities?.length || 0} opportunities + additional hours
-                              </div>
-                            )}
-                          </div>
-                      
-
-                      <div className="flex justify-end gap-2">
-                        <button
-                          onClick={() => setEditingProject(project)}
-                          className="text-green-600 hover:text-green-800 font-medium cursor-pointer text-sm"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => router.push(`/tenant/projects/${project.id}`)}
-                          className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
-                        >
-                          View Details →
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-         
-          {/* Polls Panel */}
-          <div className="bg-white rounded-lg shadow flex flex-col h-[calc(100vh-300px)]">
-            <div className="px-6 py-4 border-b flex-shrink-0">
-              <div className="flex justify-between items-center">
-                <h2 className="text-xl font-semibold">Active Polls ({polls.length})</h2>
-                <button
-                  onClick={() => setShowPollForm(!showPollForm)}
-                  className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
-                >
-                  {showPollForm ? 'Hide Form' : 'Create Poll'}
-                </button>
-              </div>
-            </div>
-
-            {showPollForm && (
-              <div className="p-6 border-b bg-gray-50 flex-shrink-0">
-                <form onSubmit={createPoll} className="space-y-4">
-                  <div className="grid grid-cols-1 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Poll Title</label>
-                      <input
-                        type="text"
-                        value={newPoll.title}
-                        onChange={(e) => setNewPoll({ ...newPoll, title: e.target.value })}
-                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                        placeholder="e.g., Annual Picnic Location"
-                        required
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Poll Type</label>
-                      <select
-                        value={newPoll.poll_type}
-                        onChange={(e) => setNewPoll({ ...newPoll, poll_type: e.target.value as 'yes_no' | 'multiple_choice' })}
-                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                      >
-                        <option value="yes_no">Yes/No</option>
-                        <option value="multiple_choice">Multiple Choice</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Question</label>
-                    <textarea
-                      value={newPoll.question}
-                      onChange={(e) => setNewPoll({ ...newPoll, question: e.target.value })}
-                      rows={3}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                      placeholder="What would you like to ask your members?"
-                      required
-                    />
-                  </div>
-
-                  {newPoll.poll_type === 'multiple_choice' && (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Options</label>
-                      {newPoll.options.map((option, index) => (
-                        <div key={index} className="flex gap-2 mt-2">
-                          <input
-                            type="text"
-                            value={option}
-                            onChange={(e) => {
-                              const newOptions = [...newPoll.options]
-                              newOptions[index] = e.target.value
-                              setNewPoll({ ...newPoll, options: newOptions })
-                            }}
-                            className="flex-1 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                            placeholder={`Option ${index + 1}`}
-                          />
-                          {index > 0 && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const newOptions = newPoll.options.filter((_, i) => i !== index)
-                                setNewPoll({ ...newPoll, options: newOptions })
-                              }}
-                              className="text-red-600 hover:text-red-800"
-                            >
-                              Remove
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                      <button
-                        type="button"
-                        onClick={() => setNewPoll({ ...newPoll, options: [...newPoll.options, ''] })}
-                        className="mt-2 text-blue-600 hover:text-blue-800 text-sm"
-                      >
-                        + Add Option
-                      </button>
-                    </div>
-                  )}
-
-                  <div className="grid grid-cols-1 gap-4">
-                    <div>
-                      <label className="flex items-center">
-                        <input
-                          type="checkbox"
-                          checked={newPoll.is_anonymous}
-                          onChange={(e) => setNewPoll({ ...newPoll, is_anonymous: e.target.checked })}
-                          className="mr-2"
-                        />
-                        Anonymous responses
-                      </label>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Expires (Optional)</label>
-                      <input
-                        type="datetime-local"
-                        value={newPoll.expires_at}
-                        onChange={(e) => setNewPoll({ ...newPoll, expires_at: e.target.value })}
-                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                      />
-                    </div>
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="bg-blue-600 text-white py-2 px-6 rounded-md hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    {loading ? 'Creating...' : 'Create Poll'}
-                  </button>
-                </form>
-              </div>
-            )}
-
-            <div className="p-6 flex-1 overflow-hidden">
-              {polls.length === 0 ? (
-                <p className="text-gray-500 text-center py-8">No polls yet. Create your first poll to get member feedback!</p>
-              ) : (
-                <div className="h-full overflow-y-auto space-y-4 pr-2">
-                  {polls.map((poll) => (
-                    <div key={poll.id} className="border rounded-lg p-4 hover:shadow-sm transition-shadow relative">
-                      {/* Close X in top right corner */}
-                      <button
-                        onClick={() => setPollToClose(poll)}
-                        className="absolute top-2 right-2 text-gray-400 hover:text-red-500 text-lg font-bold w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-100"
-                        title="Close poll"
-                      >
-                        ×
-                      </button>
-                      
-                      <div className="flex justify-between items-start mb-3">
-                        <div className="flex-1 pr-8">
-                          <h3 className="font-semibold text-lg">{poll.title}</h3>
-                          <p className="text-gray-600 mt-1">{poll.question}</p>
-                          <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
-                            <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                              poll.status === 'active' ? 'bg-green-100 text-green-800' :
-                              poll.status === 'closed' ? 'bg-gray-100 text-gray-800' :
-                              'bg-yellow-100 text-yellow-800'
-                            }`}>
-                              {poll.status}
-                            </span>
-                            <span>{poll.poll_type === 'yes_no' ? 'Yes/No' : 'Multiple Choice'}</span>
-                            {poll.is_anonymous && <span>Anonymous</span>}
-                            <span>{poll.total_responses} responses</span>
-                          </div>
-                        </div>
-                      </div>
-                      
-                      <div className="flex gap-2 mb-4">
-                        <button
-                          onClick={() => sendPollEmails(poll.id)}
-                          className="text-purple-600 hover:text-purple-800 font-medium cursor-pointer text-sm"
-                        >
-                          Email Members
-                        </button>
-                        <button
-                          onClick={() => {
-                            setViewingPoll(poll)
-                            loadPollResponses(poll.id)
-                          }}
-                          className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
-                        >
-                          View Results →
-                        </button>
-                      </div>
-                      
-                      {/* Last emailed status */}
-                      <div className="pt-3 border-t border-gray-200 text-right">
-                        <span className="text-xs text-gray-500">
-                          {poll.last_emailed_at 
-                            ? `Last emailed: ${new Date(poll.last_emailed_at).toLocaleDateString()}`
-                            : 'Never emailed'
-                          }
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-        
-
-         {/* Members Panel */}
-          <div className="bg-white rounded-lg shadow flex flex-col h-[calc(100vh-300px)]">
-            <div className="px-6 py-4 border-b flex-shrink-0">
-              <div className="flex justify-between items-center">
-                <h2 className="text-xl font-semibold">Members ({members.length})</h2>
-                <button
-                  onClick={() => setShowMemberForm(!showMemberForm)}
-                  className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
-                >
-                  {showMemberForm ? 'Hide Form' : 'Add Member'}
-                </button>
-              </div>
-            </div>
-
-            {showMemberForm && (
-              <div className="p-6 border-b bg-gray-50 flex-shrink-0">
-                <form onSubmit={addMember} className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-                        Email *
-                      </label>
-                      <input
-                        type="email"
-                        id="email"
-                        value={newMember.email}
-                        onChange={(e) => setNewMember({ ...newMember, email: e.target.value })}
-                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                        required
-                      />
-                    </div>
-
-                    <div>
-                      <label htmlFor="phoneNumber" className="block text-sm font-medium text-gray-700">
-                        Phone Number
-                      </label>
-                      <input
-                        type="tel"
-                        id="phoneNumber"
-                        value={newMember.phoneNumber}
-                        onChange={(e) => setNewMember({ ...newMember, phoneNumber: e.target.value })}
-                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                        placeholder="(555) 123-4567"
-                      />
-                    </div>
-
-                    <div>
-                      <label htmlFor="firstName" className="block text-sm font-medium text-gray-700">
-                        First Name *
-                      </label>
-                      <input
-                        type="text"
-                        id="firstName"
-                        value={newMember.firstName}
-                        onChange={(e) => setNewMember({ ...newMember, firstName: e.target.value })}
-                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                        required
-                      />
-                    </div>
-
-                    <div>
-                      <label htmlFor="lastName" className="block text-sm font-medium text-gray-700">
-                        Last Name *
-                      </label>
-                      <input
-                        type="text"
-                        id="lastName"
-                        value={newMember.lastName}
-                        onChange={(e) => setNewMember({ ...newMember, lastName: e.target.value })}
-                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                        required
-                      />
-                    </div>
-
-                    <div>
-                      <label htmlFor="position" className="block text-sm font-medium text-gray-700">
-                        Position/Status
-                      </label>
-                      <input
-                        type="text"
-                        id="position"
-                        value={newMember.position}
-                        onChange={(e) => setNewMember({ ...newMember, position: e.target.value })}
-                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                        placeholder="e.g., Member, Life Member, Volunteer"
-                      />
-                    </div>
-
-                    <div className="md:col-span-2">
-                      <label htmlFor="address" className="block text-sm font-medium text-gray-700">
-                        Address
-                      </label>
-                      <textarea
-                        id="address"
-                        rows={2}
-                        value={newMember.address}
-                        onChange={(e) => setNewMember({ ...newMember, address: e.target.value })}
-                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                        placeholder="Street address, city, postal code"
-                      />
-                    </div>
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="bg-blue-600 text-white py-2 px-6 rounded-md hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    {loading ? 'Adding...' : 'Add Member'}
-                  </button>
-                </form>
-              </div>
-            )}
-
-            <div className="p-6 flex-1 overflow-hidden">
-              {members.length === 0 ? (
-                <p className="text-gray-500 text-center py-8">No members yet. Add your first team member!</p>
-              ) : (
-                <div className="h-full overflow-y-auto space-y-4 pr-2">
-                  {members.map((member) => (
-                    <div key={member.id} className="border rounded-lg p-4 hover:shadow-sm transition-shadow relative">
-                      {/* Delete X in top right corner */}
-                      <button
-                        onClick={() => setDeletingMember(member)}
-                        className="absolute top-2 right-2 text-gray-400 hover:text-red-500 text-lg font-bold w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-100"
-                        title="Delete member"
-                      >
-                        ×
-                      </button>
-                      
-                      <div className="flex justify-between items-start">
-                        <div className="flex-1 pr-8">
-                          <div className="mb-2">
-                            <button
-                              onClick={() => setEditingMember(member)}
-                              className="text-lg font-semibold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
-                              title="Click to edit member"
-                            >
-                              {member.first_name} {member.last_name}
-                            </button>
-                          </div>
-                          
-                          <div className="grid grid-cols-1 gap-2 text-sm text-gray-600">
-                            <div>
-                               {member.email}
-                            </div>
-                            <div>
-                               {member.phone_number || '—'}
-                            </div>
-                          </div>
-                          
-                          {member.address && (
-                            <div className="mt-2 text-sm text-gray-600">
-                               {member.address}
-                            </div>
-                          )}
-                          
-                          <div className="mt-2 flex items-center gap-2">
-                            {member.position && (
-                              <span className="text-xs text-gray-400">
-                                {member.position}
-                              </span>
-                            )}
-                            {member.position && (
-                              <span className="text-xs text-gray-300">•</span>
-                            )}
-                            <span className="text-xs text-gray-400">
-                              {member.role === 'tenant_admin' ? 'admin' : 'member'}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Edit Member Modal */}
-        {editingMember && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-screen overflow-y-auto">
-              <h3 className="text-lg font-semibold mb-4">Edit Member</h3>
-              
-              <form onSubmit={(e) => {
-                e.preventDefault()
-                const formData = new FormData(e.target as HTMLFormElement)
-                updateMember({
-                  firstName: formData.get('firstName'),
-                  lastName: formData.get('lastName'),
-                  email: formData.get('email'),
-                  phoneNumber: formData.get('phoneNumber'),
-                  position: formData.get('position'),
-                  address: formData.get('address'),
-                  role: formData.get('role')
-                })
-              }} className="space-y-4">
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">First Name *</label>
-                    <input
-                      type="text"
-                      name="firstName"
-                      defaultValue={editingMember.first_name}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                      required
-                    />
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Last Name *</label>
-                    <input
-                      type="text"
-                      name="lastName"
-                      defaultValue={editingMember.last_name}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                      required
-                    />
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Email *</label>
-                    <input
-                      type="email"
-                      name="email"
-                      defaultValue={editingMember.email}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                      required
-                    />
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Phone Number</label>
-                    <input
-                      type="tel"
-                      name="phoneNumber"
-                      defaultValue={editingMember.phone_number || ''}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                    />
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Position/Status</label>
-                    <input
-                      type="text"
-                      name="position"
-                      defaultValue={editingMember.position || ''}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                      placeholder="e.g., Member, Life Member"
-                    />
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Role</label>
-                    <select
-                      name="role"
-                      defaultValue={editingMember.role}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                    >
-                      <option value="member">Member</option>
-                      <option value="tenant_admin">Admin</option>
-                    </select>
-                  </div>
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Address</label>
-                  <textarea
-                    name="address"
-                    rows={3}
-                    defaultValue={editingMember.address || ''}
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                    placeholder="Street address, city, postal code"
-                  />
-                </div>
-                
-                <div className="flex justify-end space-x-3">
-                  <button
-                    type="button"
-                    onClick={() => setEditingMember(null)}
-                    className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    {loading ? 'Saving...' : 'Save Changes'}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {/* Delete Member Confirmation Modal */}
-        {deletingMember && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 w-full max-w-md">
-              <h3 className="text-lg font-semibold mb-4">Delete Member</h3>
-              <p className="text-gray-600 mb-6">
-                Are you sure you want to delete <strong>{deletingMember.first_name} {deletingMember.last_name}</strong>? 
-                This action cannot be undone.
-              </p>
-              
-              <div className="flex justify-end space-x-3">
-                <button
-                  onClick={() => setDeletingMember(null)}
-                  className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={deleteMember}
-                  disabled={loading}
-                  className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
-                >
-                  {loading ? 'Deleting...' : 'Delete Member'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Edit Project Modal */}
-        {editingProject && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-screen overflow-y-auto">
-              <h3 className="text-lg font-semibold mb-4">Edit Project</h3>
-              
-              <form onSubmit={(e) => {
-                e.preventDefault()
-                const formData = new FormData(e.target as HTMLFormElement)
-                updateProject({
-                  name: formData.get('name'),
-                  description: formData.get('description'),
-                  goals: formData.get('goals'),
-                  status: formData.get('status')
-                })
-              }} className="space-y-4">
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Project Name *</label>
-                  <input
-                    type="text"
-                    name="name"
-                    defaultValue={editingProject.name}
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                    required
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Description</label>
-                  <textarea
-                    name="description"
-                    rows={3}
-                    defaultValue={editingProject.description}
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Goals & Objectives</label>
-                  <textarea
-                    name="goals"
-                    rows={3}
-                    defaultValue={editingProject.goals || ''}
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                    placeholder="What are the main goals and expected outcomes?"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Status</label>
-                  <select
-                    name="status"
-                    defaultValue={editingProject.status}
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                  >
-                    <option value="active">Active</option>
-                    <option value="on_hold">On Hold</option>
-                    <option value="closed">Closed</option>
-                  </select>
-                </div>
-                
-                <div className="flex justify-end space-x-3">
-                  <button
-                    type="button"
-                    onClick={() => setEditingProject(null)}
-                    className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    {loading ? 'Saving...' : 'Save Changes'}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {/* Poll Results Modal */}
-        {viewingPoll && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-screen overflow-y-auto">
-              <div className="flex justify-between items-start mb-6">
-                <div>
-                  <h3 className="text-lg font-semibold">{viewingPoll.title}</h3>
-                  <p className="text-gray-600 mt-1">{viewingPoll.question}</p>
-                  <div className="flex items-center gap-4 mt-2 text-sm">
-                    <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                      viewingPoll.status === 'active' ? 'bg-green-100 text-green-800' :
-                      viewingPoll.status === 'closed' ? 'bg-gray-100 text-gray-800' :
-                      'bg-yellow-100 text-yellow-800'
-                    }`}>
-                      {viewingPoll.status}
-                    </span>
-                    <span className="text-gray-500">{viewingPoll.poll_type === 'yes_no' ? 'Yes/No' : 'Multiple Choice'}</span>
-                    {viewingPoll.is_anonymous && <span className="text-gray-500">Anonymous</span>}
-                  </div>
-                </div>
-                <button
-                  onClick={() => {
-                    setViewingPoll(null)
-                    setPollResponses([])
-                    setShowAllResponses(false)
-                  }}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  ✕
-                </button>
-              </div>
-
-              {/* Response Summary */}
-              {(() => {
-                const actualVotes = pollResponses.filter(r => r.response && r.response.trim() !== '')
-                const totalSent = pollResponses.length
-                return (
-                  <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-                    <h4 className="font-medium mb-3">
-                      Response Summary ({actualVotes.length} of {totalSent} members voted)
-                    </h4>
-                    {actualVotes.length > 0 ? (
-                      <div className="space-y-2">
-                        {viewingPoll.poll_type === 'yes_no' ? (
-                          <>
-                            {['Yes', 'No'].map((option) => {
-                              const count = actualVotes.filter(r => r.response === option).length
-                              const percentage = actualVotes.length > 0 ? (count / actualVotes.length * 100).toFixed(1) : 0
-                              return (
-                                <div key={option} className="flex items-center gap-3">
-                                  <span className="w-12 text-sm font-medium">{option}:</span>
-                                  <div className="flex-1 bg-gray-200 rounded-full h-3">
-                                    <div 
-                                      className={`h-3 rounded-full ${option === 'Yes' ? 'bg-green-500' : 'bg-red-500'}`}
-                                      style={{ width: `${percentage}%` }}
-                                    ></div>
-                                  </div>
-                                  <span className="text-sm text-gray-600">{count} ({percentage}%)</span>
-                                </div>
-                              )
-                            })}
-                          </>
-                        ) : (
-                          <>
-                            {viewingPoll.options?.map((option) => {
-                              const count = actualVotes.filter(r => r.response === option).length
-                              const percentage = actualVotes.length > 0 ? (count / actualVotes.length * 100).toFixed(1) : 0
-                              return (
-                                <div key={option} className="flex items-center gap-3">
-                                  <span className="w-24 text-sm font-medium truncate">{option}:</span>
-                                  <div className="flex-1 bg-gray-200 rounded-full h-3">
-                                    <div 
-                                      className="h-3 rounded-full bg-blue-500"
-                                      style={{ width: `${percentage}%` }}
-                                    ></div>
-                                  </div>
-                                  <span className="text-sm text-gray-600">{count} ({percentage}%)</span>
-                                </div>
-                              )
-                            }) || []}
-                          </>
                         )}
-                        <div className="mt-3 pt-3 border-t border-gray-200">
-                          <div className="flex items-center gap-3">
-                            <span className="w-24 text-sm font-medium text-gray-700">Participation:</span>
-                            <div className="flex-1 bg-gray-200 rounded-full h-3">
-                              <div 
-                                className="h-3 rounded-full bg-purple-500"
-                                style={{ width: `${totalSent > 0 ? (actualVotes.length / totalSent * 100).toFixed(1) : 0}%` }}
-                              ></div>
-                            </div>
-                            <span className="text-sm text-gray-600">
-                              {totalSent > 0 ? (actualVotes.length / totalSent * 100).toFixed(1) : 0}% of members
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <p className="text-gray-500 text-center py-4">No votes received yet.</p>
-                    )}
-                  </div>
-                )
-              })()}
-
-              {/* Individual Responses */}
-              <div>
-                <h4 className="font-medium mb-3">
-                  {viewingPoll.is_anonymous ? 'Anonymous Responses' : 'Member Responses'}
-                </h4>
-                {(() => {
-                  const actualVotes = pollResponses.filter(r => r.response && r.response.trim() !== '')
-                  const pendingVotes = pollResponses.filter(r => !r.response || r.response.trim() === '')
-                  
-                  const sortedVotes = actualVotes.sort((a, b) => {
-                    if (a.response === b.response) {
-                      return a.member_name.localeCompare(b.member_name)
-                    }
-                    return a.response.localeCompare(b.response)
-                  })
-
-                  const sortedPending = pendingVotes.sort((a, b) => a.member_name.localeCompare(b.member_name))
-                  
-                  return (
-                    <>
-                      {actualVotes.length === 0 ? (
-                        <p className="text-gray-500 text-center py-8">No responses yet.</p>
-                      ) : (
-                        <div className="space-y-3">
-                          {sortedVotes.map((response) => (
-                            <div key={response.id} className="border rounded-lg p-4">
-                              <div className="flex justify-between items-start">
-                                <div className="flex-1">
-                                  <div className="flex items-center gap-3 mb-1">
-                                    {!viewingPoll.is_anonymous && (
-                                      <span className="font-medium">{response.member_name}</span>
-                                    )}
-                                    <span className={`px-2 py-1 text-sm font-medium rounded ${
-                                      response.response === 'Yes' ? 'bg-green-100 text-green-800' :
-                                      response.response === 'No' ? 'bg-red-100 text-red-800' :
-                                      'bg-blue-100 text-blue-800'
-                                    }`}>
-                                      {response.response}
-                                    </span>
-                                  </div>
-                                  <div className="text-xs text-gray-500">
-                                    {new Date(response.responded_at).toLocaleString()}
-                                    {response.updated_at && (
-                                      <span className="ml-2">(Edited by admin)</span>
-                                    )}
-                                  </div>
-                                </div>
-                                
-                                {!viewingPoll.is_anonymous && (
-                                  <button
-                                    onClick={() => setEditingResponse(response)}
-                                    className="text-blue-600 hover:text-blue-800 text-sm font-medium cursor-pointer"
-                                  >
-                                    Edit
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      
-                      {!viewingPoll.is_anonymous && pendingVotes.length > 0 && (
-                        <div className="mt-6">
-                          {!showAllResponses ? (
-                            <div className="text-center">
-                              <button
-                                onClick={() => setShowAllResponses(true)}
-                                className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-                              >
-                                Show all members ({pendingVotes.length} haven't responded)
-                              </button>
-                            </div>
-                          ) : (
-                            <>
-                              <div className="flex justify-between items-center mb-4">
-                                <h5 className="font-medium text-gray-700">
-                                  Members who haven't responded ({pendingVotes.length}):
-                                </h5>
+                        
+                        {!viewingPoll.is_anonymous && pendingVotes.length > 0 && (
+                          <div className="mt-6">
+                            {!showAllResponses ? (
+                              <div className="text-center">
                                 <button
-                                  onClick={() => setShowAllResponses(false)}
-                                  className="text-gray-600 hover:text-gray-800 text-sm"
+                                  onClick={() => setShowAllResponses(true)}
+                                  className="text-blue-600 hover:text-blue-800 text-sm font-medium"
                                 >
-                                  Hide unresponded
+                                  Show all members ({pendingVotes.length} haven't responded)
                                 </button>
                               </div>
-                              <div className="space-y-3">
-                                {sortedPending.map((pending) => (
-                                  <div key={pending.id} className="border border-yellow-200 rounded-lg p-4 bg-yellow-50">
-                                    <div className="flex justify-between items-start">
-                                      <div className="flex-1">
-                                        <div className="flex items-center gap-3 mb-1">
-                                          <span className="font-medium">{pending.member_name}</span>
-                                          <span className="px-2 py-1 text-sm font-medium rounded bg-yellow-100 text-yellow-800">
-                                            No response
-                                          </span>
+                            ) : (
+                              <>
+                                <div className="flex justify-between items-center mb-4">
+                                  <h5 className="font-medium text-gray-700">
+                                    Members who haven't responded ({pendingVotes.length}):
+                                  </h5>
+                                  <button
+                                    onClick={() => setShowAllResponses(false)}
+                                    className="text-gray-600 hover:text-gray-800 text-sm"
+                                  >
+                                    Hide unresponded
+                                  </button>
+                                </div>
+                                <div className="space-y-3">
+                                  {sortedPending.map((pending) => (
+                                    <div key={pending.id} className="border border-yellow-200 rounded-lg p-4 bg-yellow-50">
+                                      <div className="flex justify-between items-start">
+                                        <div className="flex-1">
+                                          <div className="flex items-center gap-3 mb-1">
+                                            <span className="font-medium">{pending.member_name}</span>
+                                            <span className="px-2 py-1 text-sm font-medium rounded bg-yellow-100 text-yellow-800">
+                                              No response
+                                            </span>
+                                          </div>
+                                          <div className="text-xs text-gray-500">
+                                            Poll sent but not yet responded
+                                          </div>
                                         </div>
-                                        <div className="text-xs text-gray-500">
-                                          Poll sent but not yet responded
-                                        </div>
+                                        
+                                        <button
+                                          onClick={() => setEditingResponse(pending)}
+                                          className="text-blue-600 hover:text-blue-800 text-sm font-medium cursor-pointer"
+                                        >
+                                          Record Response
+                                        </button>
                                       </div>
-                                      
-                                      <button
-                                        onClick={() => setEditingResponse(pending)}
-                                        className="text-blue-600 hover:text-blue-800 text-sm font-medium cursor-pointer"
-                                      >
-                                        Record Response
-                                      </button>
                                     </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      )}
-                    </>
-                  )
-                })()}
+                                  ))}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </>
+                    )
+                  })()}
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Edit Poll Response Modal */}
-        {editingResponse && viewingPoll && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 w-full max-w-md">
-              <h3 className="text-lg font-semibold mb-4">
-                {editingResponse.response && editingResponse.response.trim() !== '' ? 'Edit Response' : 'Record Response'}
-              </h3>
-              <p className="text-sm text-gray-600 mb-4">
-                {editingResponse.response && editingResponse.response.trim() !== '' 
-                  ? `Editing response from ${editingResponse.member_name}`
-                  : `Recording response for ${editingResponse.member_name}`
-                }
-              </p>
-              
-              <form onSubmit={(e) => {
-                e.preventDefault()
-                const formData = new FormData(e.target as HTMLFormElement)
-                const newResponse = formData.get('response') as string
-                updatePollResponse(editingResponse.id, newResponse)
-              }} className="space-y-4">
+          {/* Edit Poll Response Modal */}
+          {editingResponse && viewingPoll && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg p-6 w-full max-w-md">
+                <h3 className="text-lg font-semibold mb-4">
+                  {editingResponse.response && editingResponse.response.trim() !== '' ? 'Edit Response' : 'Record Response'}
+                </h3>
+                <p className="text-sm text-gray-600 mb-4">
+                  {editingResponse.response && editingResponse.response.trim() !== '' 
+                    ? `Editing response from ${editingResponse.member_name}`
+                    : `Recording response for ${editingResponse.member_name}`
+                  }
+                </p>
                 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Response</label>
-                  {viewingPoll.poll_type === 'yes_no' ? (
-                    <div className="space-y-2">
-                      <label className="flex items-center">
-                        <input
-                          type="radio"
-                          name="response"
-                          value="Yes"
-                          defaultChecked={editingResponse.response === 'Yes'}
-                          className="mr-2"
-                          required
-                        />
-                        Yes
-                      </label>
-                      <label className="flex items-center">
-                        <input
-                          type="radio"
-                          name="response"
-                          value="No"
-                          defaultChecked={editingResponse.response === 'No'}
-                          className="mr-2"
-                        />
-                        No
-                      </label>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {viewingPoll.options?.map((option) => (
-                        <label key={option} className="flex items-center">
+                <form onSubmit={(e) => {
+                  e.preventDefault()
+                  const formData = new FormData(e.target as HTMLFormElement)
+                  const newResponse = formData.get('response') as string
+                  updatePollResponse(editingResponse.id, newResponse)
+                }} className="space-y-4">
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Response</label>
+                    {viewingPoll.poll_type === 'yes_no' ? (
+                      <div className="space-y-2">
+                        <label className="flex items-center">
                           <input
                             type="radio"
                             name="response"
-                            value={option}
-                            defaultChecked={editingResponse.response === option}
+                            value="Yes"
+                            defaultChecked={editingResponse.response === 'Yes'}
                             className="mr-2"
                             required
                           />
-                          {option}
+                          Yes
                         </label>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                        <label className="flex items-center">
+                          <input
+                            type="radio"
+                            name="response"
+                            value="No"
+                            defaultChecked={editingResponse.response === 'No'}
+                            className="mr-2"
+                          />
+                          No
+                        </label>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {viewingPoll.options?.map((option) => (
+                          <label key={option} className="flex items-center">
+                            <input
+                              type="radio"
+                              name="response"
+                              value={option}
+                              defaultChecked={editingResponse.response === option}
+                              className="mr-2"
+                              required
+                            />
+                            {option}
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="flex justify-end space-x-3">
+                    <button
+                      type="button"
+                      onClick={() => setEditingResponse(null)}
+                      className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {loading ? 'Saving...' : 'Save Response'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Close Poll Confirmation Modal */}
+          {pollToClose && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg p-6 w-full max-w-md">
+                <h3 className="text-lg font-semibold mb-4">Close Poll</h3>
+                <p className="text-gray-600 mb-6">
+                  Are you sure you want to close <strong>"{pollToClose.title}"</strong>? 
+                  This will remove it from the dashboard and prevent further responses.
+                </p>
                 
                 <div className="flex justify-end space-x-3">
                   <button
-                    type="button"
-                    onClick={() => setEditingResponse(null)}
+                    onClick={() => setPollToClose(null)}
                     className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
                   >
                     Cancel
                   </button>
                   <button
-                    type="submit"
+                    onClick={() => {
+                      updatePollStatus(pollToClose.id, 'closed')
+                      setPollToClose(null)
+                    }}
                     disabled={loading}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                    className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
                   >
-                    {loading ? 'Saving...' : 'Save Response'}
+                    {loading ? 'Closing...' : 'Close Poll'}
                   </button>
                 </div>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {/* Close Poll Confirmation Modal */}
-        {pollToClose && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 w-full max-w-md">
-              <h3 className="text-lg font-semibold mb-4">Close Poll</h3>
-              <p className="text-gray-600 mb-6">
-                Are you sure you want to close <strong>"{pollToClose.title}"</strong>? 
-                This will remove it from the dashboard and prevent further responses.
-              </p>
-              
-              <div className="flex justify-end space-x-3">
-                <button
-                  onClick={() => setPollToClose(null)}
-                  className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => {
-                    updatePollStatus(pollToClose.id, 'closed')
-                    setPollToClose(null)
-                  }}
-                  disabled={loading}
-                  className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
-                >
-                  {loading ? 'Closing...' : 'Close Poll'}
-                </button>
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Close Project Confirmation Modal */}
-        {projectToClose && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 w-full max-w-md">
-              <h3 className="text-lg font-semibold mb-4">Close Project</h3>
-              <p className="text-gray-600 mb-6">
-                Are you sure you want to close <strong>"{projectToClose.name}"</strong>? 
-                This will remove it from the dashboard and mark it as completed.
-              </p>
-              
-              <div className="flex justify-end space-x-3">
-                <button
-                  onClick={() => setProjectToClose(null)}
-                  className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={closeProject}
-                  disabled={loading}
-                  className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
-                >
-                  {loading ? 'Closing...' : 'Close Project'}
-                </button>
+          {/* Close Project Confirmation Modal */}
+          {projectToClose && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg p-6 w-full max-w-md">
+                <h3 className="text-lg font-semibold mb-4">Close Project</h3>
+                <p className="text-gray-600 mb-6">
+                  Are you sure you want to close <strong>"{projectToClose.name}"</strong>? 
+                  This will remove it from the dashboard and mark it as completed.
+                </p>
+                
+                <div className="flex justify-end space-x-3">
+                  <button
+                    onClick={() => setProjectToClose(null)}
+                    className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={closeProject}
+                    disabled={loading}
+                    className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
+                  >
+                    {loading ? 'Closing...' : 'Close Project'}
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
+
+          {/* Bulk Add Members Modal */}
+          {showBulkAddModal && tenantInfo && (
+            <BulkAddMembersModal
+              tenantId={tenantInfo.id}
+              onClose={() => setShowBulkAddModal(false)}
+              onMembersAdded={loadTenantData}
+            />
+          )}
+        </div>
       </div>
-    </div>
-  </>
-)
+    </>
+  )
 }
