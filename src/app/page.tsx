@@ -173,7 +173,7 @@ export default function HomePage() {
                   onClick={() => router.push('/join')}
                   className="bg-white text-blue-600 border-2 border-blue-600 px-6 py-3 rounded-md hover:bg-blue-50 font-semibold transition-colors"
                 >
-                  Sign up Your Organization
+                  Let's Get Started!
                 </button>
               </div>
               
