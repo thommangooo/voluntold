@@ -1035,7 +1035,7 @@ const addResource = async (e: React.FormEvent) => {
               onClick={() => setShowCreateForm(!showCreateForm)}
               className="text-blue-600 hover:text-blue-800 font-medium"
             >
-              {showCreateForm ? 'Hide Form' : 'Add Opportunity'}
+              {showCreateForm ? 'Hide Form' : 'Add Sign-Up Sheet'}
             </button>
           </div>
           
@@ -1191,7 +1191,7 @@ const addResource = async (e: React.FormEvent) => {
           
           {opportunities.length === 0 ? (
             <div className="p-6 text-gray-500 text-center">
-              No volunteer opportunities yet. Create the first one above!
+              No Sign-Up Sheets yet. Create the first one above!
             </div>
           ) : (
             <div className="p-6">

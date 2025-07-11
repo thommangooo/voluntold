@@ -279,12 +279,12 @@ export default function ProjectDetailPage() {
         {/* Create New Opportunity */}
         <div className="bg-white rounded-lg shadow-md">
           <div className="px-6 py-4 border-b flex justify-between items-center">
-            <h2 className="text-xl font-semibold">Create Volunteer Opportunity</h2>
+            <h2 className="text-xl font-semibold">Create Sign-up Sheet</h2>
             <button
               onClick={() => setShowCreateForm(!showCreateForm)}
               className="text-blue-600 hover:text-blue-800 font-medium"
             >
-              {showCreateForm ? 'Hide Form' : 'Add Opportunity'}
+              {showCreateForm ? 'Hide Form' : 'Add Sign-up Sheet'}
             </button>
           </div>
           
@@ -293,7 +293,7 @@ export default function ProjectDetailPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label htmlFor="title" className="block text-sm font-medium text-gray-700">
-                    Opportunity Title *
+                    Sign-up Sheet Title *
                   </label>
                   <input
                     type="text"
@@ -412,7 +412,7 @@ export default function ProjectDetailPage() {
                 disabled={loading}
                 className="bg-blue-600 text-white py-2 px-6 rounded-md hover:bg-blue-700 disabled:opacity-50"
               >
-                {loading ? 'Creating...' : 'Create Opportunity'}
+                {loading ? 'Creating...' : 'Create Sign-up Sheet'}
               </button>
             </form>
           )}
@@ -440,7 +440,7 @@ export default function ProjectDetailPage() {
           
           {opportunities.length === 0 ? (
             <div className="p-6 text-gray-500 text-center">
-              No volunteer opportunities yet. Create the first one above!
+              No Sign-Up Sheets yet. Create the first one above!
             </div>
           ) : (
             <div className="p-6">
