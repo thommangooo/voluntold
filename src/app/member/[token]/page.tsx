@@ -646,7 +646,7 @@ export default function MemberPortal({ params }: { params: { token: string } }) 
                   {/* Hours Breakdown */}
                   <div className="space-y-3 mb-6">
                     <div className="flex justify-between">
-                      <span className="text-gray-600">From volunteer opportunities:</span>
+                      <span className="text-gray-600">From tunities:</span>
                       <span className="font-medium">{hoursBreakdown.opportunity_hours} hrs</span>
                     </div>
                     <div className="flex justify-between">

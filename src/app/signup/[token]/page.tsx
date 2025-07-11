@@ -140,7 +140,7 @@ export default function SignupPage() {
     }
 
     const title = `${opp.title} - ${opp.project_name}`
-    const description = `Volunteer opportunity: ${opp.title}${opp.description ? `\n\n${opp.description}` : ''}\n\nOrganization: ${signupData.tenant.name}${opp.skills_required.length > 0 ? `\nSkills: ${opp.skills_required.join(', ')}` : ''}`
+    const description = `Sign-Up Sheet: ${opp.title}${opp.description ? `\n\n${opp.description}` : ''}\n\nOrganization: ${signupData.tenant.name}${opp.skills_required.length > 0 ? `\nSkills: ${opp.skills_required.join(', ')}` : ''}`
     const location = opp.location || ''
 
     return {
@@ -188,7 +188,7 @@ export default function SignupPage() {
       'BEGIN:VALARM',
       'TRIGGER:-PT1H',
       'ACTION:DISPLAY',
-      'DESCRIPTION:Reminder: Volunteer opportunity in 1 hour',
+      'DESCRIPTION:Reminder: Signed up shift in 1 hour',
       'END:VALARM',
       'END:VEVENT',
       'END:VCALENDAR'
@@ -219,7 +219,7 @@ export default function SignupPage() {
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading volunteer opportunity...</p>
+          <p className="text-gray-600">Loading Sign-Up Sheet...</p>
         </div>
       </div>
     )

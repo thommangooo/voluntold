@@ -150,19 +150,19 @@ export async function POST(request: NextRequest) {
         const { data, error } = await resend.emails.send({
           from: 'noreply@voluntold.net',
           to: [member.email],
-          subject: `New Volunteer Opportunities - ${tenant.name}`,
+          subject: `New Sign-Up Sheets - ${tenant.name}`,
           html: `
             <!DOCTYPE html>
             <html>
             <head>
               <meta charset="utf-8">
               <meta name="viewport" content="width=device-width, initial-scale=1">
-              <title>Volunteer Opportunities - ${tenant.name}</title>
+              <title>Sign-Up Sheets - ${tenant.name}</title>
             </head>
             <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #374151; max-width: 600px; margin: 0 auto; padding: 20px;">
               
               <div style="text-align: center; margin-bottom: 32px; padding: 20px; background: #f9fafb; border-radius: 8px;">
-                <h1 style="margin: 0; color: #1f2937;">New Volunteer Opportunities!</h1>
+                <h1 style="margin: 0; color: #1f2937;">New Sign-Up SHeets!</h1>
                 <p style="margin: 8px 0 0 0; color: #6b7280; font-size: 16px;">${tenant.name}</p>
               </div>
 
@@ -180,7 +180,7 @@ export async function POST(request: NextRequest) {
 
             </body>
             </html>`,
-          text: `Hi ${member.first_name}! New volunteer opportunities from ${tenant.name}:\n\n${opportunities.map(opp => `${opp.title} - ${formatDateTime(opp)} - Sign up: ${process.env.NEXT_PUBLIC_SITE_URL}/signup/${memberTokens[opp.id]}`).join('\n\n')}`
+          text: `Hi ${member.first_name}! New Sign-Up Sheets from ${tenant.name}:\n\n${opportunities.map(opp => `${opp.title} - ${formatDateTime(opp)} - Sign up: ${process.env.NEXT_PUBLIC_SITE_URL}/signup/${memberTokens[opp.id]}`).join('\n\n')}`
         })
 
         if (error) {

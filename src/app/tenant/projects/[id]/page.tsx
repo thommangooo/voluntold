@@ -1030,7 +1030,7 @@ const addResource = async (e: React.FormEvent) => {
         {/* Create New Opportunity */}
         <div className="bg-white rounded-lg shadow-md">
           <div className="px-6 py-4 border-b flex justify-between items-center">
-            <h2 className="text-xl font-semibold">Create Volunteer Opportunity</h2>
+            <h2 className="text-xl font-semibold">Create Sign-Up Sheet</h2>
             <button
               onClick={() => setShowCreateForm(!showCreateForm)}
               className="text-blue-600 hover:text-blue-800 font-medium"
@@ -1172,7 +1172,7 @@ const addResource = async (e: React.FormEvent) => {
         {/* Opportunities List */}
         <div className="bg-white rounded-lg shadow-md">
           <div className="px-6 py-4 border-b flex justify-between items-center">
-            <h2 className="text-xl font-semibold">Volunteer Opportunities ({opportunities.length})</h2>
+            <h2 className="text-xl font-semibold">Sign-Up Sheets ({opportunities.length})</h2>
             {opportunities.length > 0 && (
               <div className="flex items-center space-x-4">
                 <span className="text-sm text-gray-600">

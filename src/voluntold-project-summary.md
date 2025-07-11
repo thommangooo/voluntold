@@ -9,7 +9,7 @@
 - **Multi-tenant architecture** - Multiple organizations can use the same system
 - **User authentication** with Supabase Auth (admin/tenant_admin with passwords)
 - **Role-based access** (super_admin, tenant_admin, member)
-- **Project-based organization** of volunteer opportunities
+- **Project-based organization** of Sign-Up Sheets
 - **Email broadcasting system** with professional templates and rate limiting
 - **Volunteer signup system** with calendar integration and duplicate prevention
 - **Admin dashboard** with project/member/poll management

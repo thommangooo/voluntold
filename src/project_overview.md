@@ -7,7 +7,7 @@ A **complete multi-tenant volunteer management system** with the following featu
 - **Multi-tenant architecture** - Multiple organizations can use the same system
 - **User authentication** with Supabase Auth
 - **Role-based access** (super_admin, tenant_admin, member)
-- **Project-based organization** of volunteer opportunities
+- **Project-based organization** of tunities
 
 ### Email Broadcasting System
 - **Professional email templates** grouped by project

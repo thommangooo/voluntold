@@ -108,12 +108,12 @@ export function createOpportunityEmailContent(
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Volunteer Opportunities - ${project.name}</title>
+  <title>Sign-Up Sheets - ${project.name}</title>
 </head>
 <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #374151; max-width: 600px; margin: 0 auto; padding: 20px;">
   
   <div style="text-align: center; margin-bottom: 32px; padding: 20px; background: #f9fafb; border-radius: 8px;">
-    <h1 style="margin: 0; color: #1f2937;">New Volunteer Opportunities!</h1>
+    <h1 style="margin: 0; color: #1f2937;">New Sign-Up Sheets!</h1>
     <p style="margin: 8px 0 0 0; color: #6b7280; font-size: 16px;">${project.name} • ${tenant.name}</p>
   </div>
 
@@ -153,7 +153,7 @@ Thank you for volunteering with ${tenant.name}!
 `
 
   return {
-    subject: `New Volunteer Opportunities: ${project.name}`,
+    subject: `New Sign-Up Sheets: ${project.name}`,
     html: htmlContent,
     text: textContent
   }
