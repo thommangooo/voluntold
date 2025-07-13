@@ -1,4 +1,4 @@
-// src/app/member/[token]/page.tsx - v2.2 - Fixed token validation
+// src/app/member/[token]/page.tsx - v2.3 - Added Sign-Up Sheets functionality
 'use client'
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
@@ -65,6 +65,29 @@ interface RosterMember {
   position: string | null
 }
 
+interface SignupSheet {
+  opportunity: {
+    id: string
+    title: string
+    description: string
+    date_scheduled: string
+    time_start: string
+    duration_hours: number
+    volunteers_needed: number
+    location: string
+    project: {
+      name: string
+    }
+  }
+  signups: Array<{
+    id: string
+    member_name: string
+    member_email: string
+    signed_up_at: string
+    status: string
+  }>
+}
+
 export default function MemberPortal({ params }: { params: { token: string } }) {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
@@ -76,6 +99,7 @@ export default function MemberPortal({ params }: { params: { token: string } }) 
   const [roster, setRoster] = useState<RosterMember[]>([])
   const [message, setMessage] = useState('')
   const [selectedPoll, setSelectedPoll] = useState<PollItem | null>(null)
+  const [signupSheets, setSignupSheets] = useState<SignupSheet[]>([])
 
   // Load member data based on token
   useEffect(() => {
@@ -369,6 +393,97 @@ export default function MemberPortal({ params }: { params: { token: string } }) 
       setRoster(members || [])
     } catch (error) {
       console.error('Error loading roster:', error)
+    }
+  }
+
+  const loadSignupSheets = async (tenantId: string) => {
+    try {
+      // Get current and future opportunities with their project information
+      const { data: opportunities, error: opportunitiesError } = await supabase
+        .from('opportunities')
+        .select(`
+          id,
+          title,
+          description,
+          date_scheduled,
+          time_start,
+          duration_hours,
+          volunteers_needed,
+          location,
+          projects!inner(name)
+        `)
+        .eq('tenant_id', tenantId)
+        .gte('date_scheduled', new Date().toISOString().split('T')[0])
+        .order('date_scheduled', { ascending: true })
+
+      if (opportunitiesError) {
+        console.error('Error fetching opportunities:', opportunitiesError)
+        return
+      }
+
+      // Get all signups for these opportunities
+      const opportunityIds = opportunities?.map(opp => opp.id) || []
+      
+      interface SignupData {
+        id: string
+        opportunity_id: string
+        member_email: string
+        member_name: string
+        signed_up_at: string
+        status: string
+      }
+
+      let allSignups: SignupData[] = []
+      if (opportunityIds.length > 0) {
+        const { data: signups, error: signupsError } = await supabase
+          .from('signups')
+          .select(`
+            id,
+            opportunity_id,
+            member_email,
+            member_name,
+            signed_up_at,
+            status
+          `)
+          .eq('tenant_id', tenantId)
+          .in('opportunity_id', opportunityIds)
+          .order('signed_up_at', { ascending: true })
+
+        if (!signupsError && signups) {
+          allSignups = signups as SignupData[]
+        }
+      }
+
+      // Group signups by opportunity_id
+      const signupsByOpportunity = allSignups.reduce((acc, signup) => {
+        if (!acc[signup.opportunity_id]) {
+          acc[signup.opportunity_id] = []
+        }
+        acc[signup.opportunity_id].push(signup)
+        return acc
+      }, {} as Record<string, SignupData[]>)
+
+      // Combine opportunities with their signups
+      const sheets = opportunities?.map(opportunity => ({
+        opportunity: {
+          id: opportunity.id,
+          title: opportunity.title,
+          description: opportunity.description || '',
+          date_scheduled: opportunity.date_scheduled,
+          time_start: opportunity.time_start,
+          duration_hours: opportunity.duration_hours,
+          volunteers_needed: opportunity.volunteers_needed,
+          location: opportunity.location || '',
+          project: {
+            name: (opportunity.projects as any).name
+          }
+        },
+        signups: signupsByOpportunity[opportunity.id] || []
+      })) || []
+
+      setSignupSheets(sheets)
+    } catch (error) {
+      console.error('Error loading signup sheets:', error)
     }
   }
 
@@ -787,6 +902,94 @@ export default function MemberPortal({ params }: { params: { token: string } }) 
                   </tbody>
                 </table>
               </div>
+            </div>
+          </div>
+
+          {/* Sign-Up Sheets */}
+          <div className="bg-white rounded-lg shadow lg:col-span-2">
+            <div className="px-6 py-4 border-b flex justify-between items-center">
+              <h2 className="text-xl font-semibold">Current & Upcoming Sign-Up Sheets</h2>
+              <button
+                onClick={() => loadSignupSheets(tenantInfo.id)}
+                className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+              >
+                Load Sign-Up Sheets
+              </button>
+            </div>
+            <div className="p-6">
+              {signupSheets.length === 0 ? (
+                <p className="text-gray-500 text-center py-8">Click "Load Sign-Up Sheets" to view current and upcoming volunteer rosters.</p>
+              ) : (
+                <div className="space-y-6">
+                  {signupSheets.map((sheet) => (
+                    <div key={sheet.opportunity.id} className="border rounded-lg">
+                      {/* Opportunity Header */}
+                      <div className="border-b border-gray-200 p-4 bg-gray-50">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <h3 className="text-lg font-semibold text-gray-900">{sheet.opportunity.title}</h3>
+                            <p className="text-blue-600 font-medium">{sheet.opportunity.project.name}</p>
+                            <p className="text-gray-600 text-sm mt-1">{sheet.opportunity.description}</p>
+                          </div>
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            sheet.signups.length >= sheet.opportunity.volunteers_needed
+                              ? 'bg-green-100 text-green-800'
+                              : 'bg-yellow-100 text-yellow-800'
+                          }`}>
+                            {sheet.signups.length}/{sheet.opportunity.volunteers_needed} filled
+                          </span>
+                        </div>
+                        
+                        <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3 text-xs text-gray-600">
+                          <div>
+                            <span className="font-medium">Date:</span> {new Date(sheet.opportunity.date_scheduled).toLocaleDateString()}
+                          </div>
+                          <div>
+                            <span className="font-medium">Time:</span> {sheet.opportunity.time_start}
+                          </div>
+                          <div>
+                            <span className="font-medium">Duration:</span> {sheet.opportunity.duration_hours}h
+                          </div>
+                          <div>
+                            <span className="font-medium">Location:</span> {sheet.opportunity.location}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Signups List */}
+                      <div className="p-4">
+                        <h4 className="font-medium text-gray-900 mb-3">
+                          Volunteers ({sheet.signups.length})
+                        </h4>
+                        
+                        {sheet.signups.length === 0 ? (
+                          <p className="text-gray-500 italic text-sm">No volunteers signed up yet</p>
+                        ) : (
+                          <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
+                            {sheet.signups.map((signup) => (
+                              <div key={signup.id} className="flex items-center justify-between p-2 bg-gray-50 rounded text-sm">
+                                <div>
+                                  <p className="font-medium text-gray-900">{signup.member_name}</p>
+                                  <p className="text-xs text-gray-600">
+                                    {new Date(signup.signed_up_at).toLocaleDateString()}
+                                  </p>
+                                </div>
+                                <span className={`px-1 py-0.5 text-xs rounded ${
+                                  signup.status === 'confirmed' 
+                                    ? 'bg-green-100 text-green-800'
+                                    : 'bg-yellow-100 text-yellow-800'
+                                }`}>
+                                  {signup.status}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
