@@ -1,14 +1,12 @@
-// File: src/app/auth/login/page.tsx
-// Version: 5.0 - Updated to handle context from home page
-
 'use client'
 
 import { useState, useEffect } from 'react'
 import { supabase } from '../../../lib/supabase'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Image from 'next/image'
+import { Suspense } from 'react'
 
-export default function LoginPage() {
+function LoginForm() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
@@ -214,10 +212,16 @@ export default function LoginPage() {
               </div>
             )}
           </form>
-
-
         </div>
       </div>
     </div>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">Loading...</div>}>
+      <LoginForm />
+    </Suspense>
   )
 }
