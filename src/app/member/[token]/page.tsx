@@ -99,6 +99,8 @@ export default function MemberPortal({ params }: { params: { token: string } }) 
   const [hoursBreakdown, setHoursBreakdown] = useState<HoursBreakdown | null>(null)
   const [activePolls, setActivePolls] = useState<PollItem[]>([])
   const [roster, setRoster] = useState<RosterMember[]>([])
+  const [filteredRoster, setFilteredRoster] = useState<RosterMember[]>([])
+  const [rosterSearch, setRosterSearch] = useState('')
   const [message, setMessage] = useState('')
   const [selectedPoll, setSelectedPoll] = useState<PollItem | null>(null)
   const [signupSheets, setSignupSheets] = useState<SignupSheet[]>([])
@@ -107,6 +109,20 @@ export default function MemberPortal({ params }: { params: { token: string } }) 
   useEffect(() => {
     loadMemberData()
   }, [params.token])
+
+  // Update filtered roster when roster or search changes
+  useEffect(() => {
+    if (!rosterSearch.trim()) {
+      setFilteredRoster(roster)
+    } else {
+      const filtered = roster.filter(member => 
+        `${member.first_name} ${member.last_name}`.toLowerCase().includes(rosterSearch.toLowerCase()) ||
+        member.email.toLowerCase().includes(rosterSearch.toLowerCase()) ||
+        (member.position && member.position.toLowerCase().includes(rosterSearch.toLowerCase()))
+      )
+      setFilteredRoster(filtered)
+    }
+  }, [roster, rosterSearch])
 
   const loadMemberData = async () => {
     try {
@@ -427,9 +443,15 @@ export default function MemberPortal({ params }: { params: { token: string } }) 
       }
 
       setRoster(members || [])
+      setFilteredRoster(members || [])
     } catch (error) {
       console.error('Error loading roster:', error)
     }
+  }
+
+  // Filter roster based on search
+  const handleRosterSearch = (searchTerm: string) => {
+    setRosterSearch(searchTerm)
   }
 
   const loadSignupSheets = async (tenantId: string) => {
@@ -918,12 +940,29 @@ export default function MemberPortal({ params }: { params: { token: string } }) 
           {/* Membership Roster */}
           <div className="bg-white rounded-lg shadow">
             <div className="px-6 py-4 border-b">
-              <h2 className="text-xl font-semibold">Membership Roster</h2>
+              <div className="flex justify-between items-center mb-3">
+                <h2 className="text-xl font-semibold">Membership Roster</h2>
+                <span className="text-sm text-gray-500">
+                  {filteredRoster.length} of {roster.length} members
+                </span>
+              </div>
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="Search members..."
+                  value={rosterSearch}
+                  onChange={(e) => handleRosterSearch(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+                <div className="absolute right-3 top-2.5 text-gray-400">
+                  🔍
+                </div>
+              </div>
             </div>
-            <div className="p-6">
-              <div className="overflow-x-auto">
+            <div className="p-0">
+              <div className="max-h-96 overflow-y-auto">
                 <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
+                  <thead className="bg-gray-50 sticky top-0">
                     <tr>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Name
@@ -937,38 +976,46 @@ export default function MemberPortal({ params }: { params: { token: string } }) 
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {roster.map((member) => (
-                      <tr key={member.id}>
-                        <td className="px-4 py-4 whitespace-nowrap">
-                          <div className="text-sm font-medium text-gray-900">
-                            {member.first_name} {member.last_name}
-                          </div>
-                          {member.position && (
-                            <div className="text-sm text-gray-500">{member.position}</div>
-                          )}
-                        </td>
-                        <td className="px-4 py-4 whitespace-nowrap">
-                          <a 
-                            href={`mailto:${member.email}`}
-                            className="text-sm text-blue-600 hover:text-blue-800"
-                          >
-                            {member.email}
-                          </a>
-                        </td>
-                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {member.phone_number ? (
-                            <a 
-                              href={`tel:${member.phone_number}`}
-                              className="text-blue-600 hover:text-blue-800"
-                            >
-                              {member.phone_number}
-                            </a>
-                          ) : (
-                            '—'
-                          )}
+                    {filteredRoster.length === 0 ? (
+                      <tr>
+                        <td colSpan={3} className="px-4 py-8 text-center text-gray-500">
+                          {rosterSearch ? 'No members found matching your search.' : 'No members found.'}
                         </td>
                       </tr>
-                    ))}
+                    ) : (
+                      filteredRoster.map((member) => (
+                        <tr key={member.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            <div className="text-sm font-medium text-gray-900">
+                              {member.first_name} {member.last_name}
+                            </div>
+                            {member.position && (
+                              <div className="text-xs text-gray-500">{member.position}</div>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            <a 
+                              href={`mailto:${member.email}`}
+                              className="text-sm text-blue-600 hover:text-blue-800"
+                            >
+                              {member.email}
+                            </a>
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                            {member.phone_number ? (
+                              <a 
+                                href={`tel:${member.phone_number}`}
+                                className="text-blue-600 hover:text-blue-800"
+                              >
+                                {member.phone_number}
+                              </a>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>
