@@ -54,6 +54,8 @@ interface PollItem {
   expires_at: string | null
   has_responded: boolean
   member_response?: string
+  response_counts: { [key: string]: number }
+  total_responses: number
 }
 
 interface RosterMember {
@@ -348,15 +350,47 @@ export default function MemberPortal({ params }: { params: { token: string } }) 
         return
       }
 
-      // Check member responses for each poll
+      // Check member responses and get response counts for each poll
       const pollsWithResponses = await Promise.all(
         polls.map(async (poll) => {
+          // Check if member has responded
           const { data: response } = await supabase
             .from('poll_responses')
             .select('response')
             .eq('poll_id', poll.id)
             .eq('member_email', memberEmail)
             .single()
+
+          // Get all responses for this poll to calculate counts
+          const { data: allResponses } = await supabase
+            .from('poll_responses')
+            .select('response')
+            .eq('poll_id', poll.id)
+
+          // Calculate response counts
+          const responseCounts: { [key: string]: number } = {}
+          let totalResponses = 0
+
+          if (allResponses) {
+            allResponses.forEach(resp => {
+              const responseValue = resp.response
+              responseCounts[responseValue] = (responseCounts[responseValue] || 0) + 1
+              totalResponses++
+            })
+          }
+
+          // For yes/no polls, ensure both options are present
+          if (poll.poll_type === 'yes_no') {
+            responseCounts['Yes'] = responseCounts['Yes'] || 0
+            responseCounts['No'] = responseCounts['No'] || 0
+          }
+
+          // For multiple choice polls, ensure all options are present
+          if (poll.poll_type === 'multiple_choice' && poll.options) {
+            (poll.options as string[]).forEach(option => {
+              responseCounts[option] = responseCounts[option] || 0
+            })
+          }
 
           return {
             id: poll.id,
@@ -366,7 +400,9 @@ export default function MemberPortal({ params }: { params: { token: string } }) 
             options: poll.options as string[] | undefined,
             expires_at: poll.expires_at,
             has_responded: !!response,
-            member_response: response?.response
+            member_response: response?.response,
+            response_counts: responseCounts,
+            total_responses: totalResponses
           }
         })
       )
@@ -519,8 +555,8 @@ export default function MemberPortal({ params }: { params: { token: string } }) 
       setMessage(`Response "${response}" submitted successfully!`)
       setSelectedPoll(null)
       
-      // Reload polls to update status
-      if (tenantInfo) {
+      // Reload polls to update status and counts
+      if (tenantInfo && memberInfo) {
         loadActivePolls(tenantInfo.id, memberInfo.email)
       }
     } catch (error) {
@@ -824,6 +860,40 @@ export default function MemberPortal({ params }: { params: { token: string } }) 
                           Expires: {new Date(poll.expires_at).toLocaleDateString()}
                         </div>
                       )}
+
+                      {/* Poll Results */}
+                      <div className="mb-4">
+                        <div className="text-sm font-medium text-gray-700 mb-2">
+                          Results ({poll.total_responses} response{poll.total_responses !== 1 ? 's' : ''}):
+                        </div>
+                        <div className="space-y-2">
+                          {poll.poll_type === 'yes_no' ? (
+                            <>
+                              <div className="flex justify-between items-center text-sm">
+                                <span className={poll.member_response === 'Yes' ? 'font-semibold text-green-700' : 'text-gray-600'}>
+                                  Yes
+                                </span>
+                                <span className="font-medium">{poll.response_counts['Yes'] || 0}</span>
+                              </div>
+                              <div className="flex justify-between items-center text-sm">
+                                <span className={poll.member_response === 'No' ? 'font-semibold text-green-700' : 'text-gray-600'}>
+                                  No
+                                </span>
+                                <span className="font-medium">{poll.response_counts['No'] || 0}</span>
+                              </div>
+                            </>
+                          ) : (
+                            poll.options?.map((option) => (
+                              <div key={option} className="flex justify-between items-center text-sm">
+                                <span className={poll.member_response === option ? 'font-semibold text-green-700' : 'text-gray-600'}>
+                                  {option}
+                                </span>
+                                <span className="font-medium">{poll.response_counts[option] || 0}</span>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
 
                       {poll.has_responded ? (
                         <div className="text-sm">
