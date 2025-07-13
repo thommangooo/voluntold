@@ -48,6 +48,10 @@ export default function LoginPage() {
         router.push('/admin')
       } else if (accessType === 'tenant_admin') {
         console.log('🚀 Routing tenant admin to /tenant', { orgId, hasOrgId: !!orgId })
+        
+        // Add a small delay to ensure session is established
+        await new Promise(resolve => setTimeout(resolve, 500))
+        
         // Pass org context if available to avoid setup redirects
         if (orgId) {
           router.push(`/tenant?org=${orgId}`)
@@ -211,7 +215,7 @@ export default function LoginPage() {
             )}
           </form>
 
-          
+
         </div>
       </div>
     </div>
