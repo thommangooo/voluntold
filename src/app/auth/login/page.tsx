@@ -1,11 +1,11 @@
 // File: src/app/auth/login/page.tsx
-// Version: 4.0 - Original working code + logo only
+// Version: 5.0 - Updated to handle context from home page
 
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '../../../lib/supabase'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Image from 'next/image'
 
 export default function LoginPage() {
@@ -14,6 +14,20 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
   const router = useRouter()
+  const searchParams = useSearchParams()
+
+  // Get context from URL parameters
+  const urlEmail = searchParams.get('email') || ''
+  const accessType = searchParams.get('accessType') || ''
+  const orgId = searchParams.get('org') || ''
+  const orgName = searchParams.get('orgName') || ''
+
+  // Pre-populate email from URL
+  useEffect(() => {
+    if (urlEmail) {
+      setEmail(urlEmail)
+    }
+  }, [urlEmail])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -28,20 +42,37 @@ export default function LoginPage() {
 
       if (error) throw error
 
-      // Check user role and redirect
-      const { data: profile } = await supabase
-        .from('user_profiles')
-        .select('role, tenant_id')
-        .eq('id', data.user.id)
-        .single()
-
-      if (profile?.role === 'super_admin') {
+      // Route based on the context passed from home page
+      if (accessType === 'super_admin') {
+        console.log('🚀 Routing super admin to /admin')
         router.push('/admin')
-      } else if (profile?.role === 'tenant_admin') {
-        router.push('/tenant')
+      } else if (accessType === 'tenant_admin') {
+        console.log('🚀 Routing tenant admin to /tenant', { orgId, hasOrgId: !!orgId })
+        // Pass org context if available to avoid setup redirects
+        if (orgId) {
+          router.push(`/tenant?org=${orgId}`)
+        } else {
+          router.push('/tenant')
+        }
       } else {
-        setMessage('You do not have admin permissions.')
-        await supabase.auth.signOut()
+        // Fallback: Check user role in database (original logic)
+        console.log('🚀 Using fallback routing - checking database role')
+        const { data: profile } = await supabase
+          .from('user_profiles')
+          .select('role, tenant_id')
+          .eq('id', data.user.id)
+          .single()
+
+        if (profile?.role === 'super_admin') {
+          router.push('/admin')
+        } else if (profile?.role === 'tenant_admin') {
+          // Use orgId from URL if available, otherwise use tenant_id from profile
+          const targetOrg = orgId || profile.tenant_id
+          router.push(`/tenant${targetOrg ? `?org=${targetOrg}` : ''}`)
+        } else {
+          setMessage('You do not have admin permissions.')
+          await supabase.auth.signOut()
+        }
       }
     } catch (error: any) {
       setMessage(`Error: ${error.message}`)
@@ -49,6 +80,31 @@ export default function LoginPage() {
       setLoading(false)
     }
   }
+
+  // Determine what context to show
+  const getContextDisplay = () => {
+    if (accessType === 'super_admin') {
+      return {
+        title: 'Super Admin Login',
+        subtitle: 'Sign in with full system access',
+        contextInfo: 'You are signing in as a Super Administrator'
+      }
+    } else if (accessType === 'tenant_admin' && orgName) {
+      return {
+        title: 'Admin Login',
+        subtitle: `Sign in to manage ${orgName}`,
+        contextInfo: `You are signing in as an Administrator for ${orgName}`
+      }
+    } else {
+      return {
+        title: 'Admin Login',
+        subtitle: 'Sign in to manage your organization',
+        contextInfo: null
+      }
+    }
+  }
+
+  const contextDisplay = getContextDisplay()
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -81,16 +137,25 @@ export default function LoginPage() {
         </div>
       </header>
 
-      {/* Original Login Content */}
+      {/* Login Content with Context */}
       <div className="flex items-center justify-center py-16">
         <div className="max-w-md w-full space-y-8">
           <div>
             <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-              Admin Login
+              {contextDisplay.title}
             </h2>
             <p className="mt-2 text-center text-sm text-gray-600">
-              Sign in to manage your organization
+              {contextDisplay.subtitle}
             </p>
+            
+            {/* Context Information */}
+            {contextDisplay.contextInfo && (
+              <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                <p className="text-center text-sm text-blue-800">
+                  {contextDisplay.contextInfo}
+                </p>
+              </div>
+            )}
           </div>
           
           <form className="mt-8 space-y-6" onSubmit={handleLogin}>
@@ -145,6 +210,8 @@ export default function LoginPage() {
               </div>
             )}
           </form>
+
+          
         </div>
       </div>
     </div>

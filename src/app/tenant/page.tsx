@@ -1,5 +1,5 @@
 // File: src/app/tenant/page.tsx
-// Version: 2.1 - Added bulk member upload functionality
+// Version: 2.2 - Fixed context handling for dual-role users
 
 'use client'
 import Header from '../../components/Header'
@@ -163,15 +163,58 @@ export default function TenantDashboard() {
         return
       }
 
-      const { data: profile, error: profileError } = await supabase
-        .from('user_profiles')
-        .select('*')
-        .eq('id', session.user.id)
-        .single()
+      // Get org context from URL if available
+      const urlParams = new URLSearchParams(window.location.search)
+      const orgFromUrl = urlParams.get('org')
 
-      if (profileError) throw profileError
+      let profile = null
+      let targetTenantId = null
 
-      if (!profile?.tenant_id) {
+      if (orgFromUrl) {
+        // Org specified in URL - find profile for that specific org
+        const { data: orgProfile, error: orgProfileError } = await supabase
+          .from('user_profiles')
+          .select('*')
+          .eq('id', session.user.id)
+          .eq('tenant_id', orgFromUrl)
+          .single()
+
+        if (!orgProfileError && orgProfile) {
+          profile = orgProfile
+          targetTenantId = orgFromUrl
+        } else {
+          // Check if user is super admin (can access any org)
+          const { data: superProfile, error: superError } = await supabase
+            .from('user_profiles')
+            .select('*')
+            .eq('id', session.user.id)
+            .eq('role', 'super_admin')
+            .single()
+
+          if (!superError && superProfile) {
+            profile = superProfile
+            targetTenantId = orgFromUrl
+          }
+        }
+      } else {
+        // No org specified - find any admin profile
+        const { data: allProfiles, error: profilesError } = await supabase
+          .from('user_profiles')
+          .select('*')
+          .eq('id', session.user.id)
+          .in('role', ['tenant_admin', 'super_admin'])
+
+        if (profilesError) throw profilesError
+
+        // Prefer tenant_admin profile if available
+        const tenantAdmin = allProfiles?.find(p => p.role === 'tenant_admin' && p.tenant_id)
+        const superAdmin = allProfiles?.find(p => p.role === 'super_admin')
+        
+        profile = tenantAdmin || superAdmin
+        targetTenantId = profile?.tenant_id
+      }
+
+      if (!profile || !targetTenantId) {
         router.push('/setup-tenant')
         return
       }
@@ -179,7 +222,7 @@ export default function TenantDashboard() {
       const { data: tenant, error: tenantError } = await supabase
         .from('tenants')
         .select('id, name, slug')
-        .eq('id', profile.tenant_id)
+        .eq('id', targetTenantId)
         .single()
 
       if (tenantError) throw tenantError

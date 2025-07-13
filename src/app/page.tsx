@@ -1,107 +1,180 @@
 // File: src/app/page.tsx
-// Version: 33 - Keep existing functionality, just redirect admin to /auth/login
+// Version: v34 - Single sign-in flow preserving existing marketing content (syntax fixed)
 
 'use client'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 
+interface AccessOption {
+  id: string; // 'super_admin' or tenant_id
+  name: string; // Display name
+  accessType: 'super_admin' | 'tenant_admin' | 'member';
+  tenantId?: string; // Only for tenant-specific access
+  organizationName?: string; // Only for tenant-specific access
+}
+
+interface UserRoleInfo {
+  hasAdminAccess: boolean;
+  hasMemberAccess: boolean;
+  accessOptions: AccessOption[];
+  totalOptions: number;
+}
+
 export default function HomePage() {
   const router = useRouter()
-  const [showMemberAccess, setShowMemberAccess] = useState(false)
-  const [memberEmail, setMemberEmail] = useState('')
+  const [showSignIn, setShowSignIn] = useState(false)
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [selectedOrgId, setSelectedOrgId] = useState('')
   const [loading, setLoading] = useState(false)
+  const [orgSelectionLoading, setOrgSelectionLoading] = useState(false)
   const [message, setMessage] = useState('')
+  const [currentStep, setCurrentStep] = useState<'email' | 'org-selection' | 'magic-link-sent'>('email')
+  const [userRoleInfo, setUserRoleInfo] = useState<UserRoleInfo | null>(null)
   const [showSuccessMessage, setShowSuccessMessage] = useState(false)
-  const [organizations, setOrganizations] = useState<{tenant_id: string, tenant_name: string}[]>([])
-  const [showOrgSelection, setShowOrgSelection] = useState(false)
 
-  const handleMemberAccess = async () => {
-    if (!memberEmail.trim()) {
-      setMessage('Please enter your email address')
-      return
+  const handleEmailSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email.trim()) return;
+    
+    setLoading(true);
+    setMessage('');
+
+    try {
+      const response = await fetch('/api/check-user-role', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim().toLowerCase() })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to check user information');
+      }
+
+      setUserRoleInfo(data);
+
+      // If user has no access at all, show generic success for privacy
+      if (data.totalOptions === 0) {
+        setCurrentStep('magic-link-sent');
+        return;
+      }
+
+      // If user has multiple access options, show selection
+      if (data.totalOptions > 1) {
+        setCurrentStep('org-selection');
+      } else {
+        // Single access option - auto-route based on type
+        const singleOption = data.accessOptions[0];
+        
+        if (singleOption.accessType === 'super_admin' || singleOption.accessType === 'tenant_admin') {
+          // Admin access - redirect to auth page
+          await redirectToAuthPage(singleOption);
+        } else {
+          // Member access - send magic link
+          await sendMagicLink(singleOption.tenantId!);
+        }
+      }
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'An error occurred');
+    } finally {
+      setLoading(false);
     }
+  };
 
-    setLoading(true)
-    setMessage('')
+  const handleOrgSelection = async (accessOption: AccessOption) => {
+    setOrgSelectionLoading(true);
+    
+    if (accessOption.accessType === 'super_admin' || accessOption.accessType === 'tenant_admin') {
+      // Admin access - redirect to auth page
+      await redirectToAuthPage(accessOption);
+    } else {
+      // Member access - send magic link
+      await sendMagicLink(accessOption.tenantId!);
+    }
+    
+    setOrgSelectionLoading(false);
+  };
 
+  const redirectToAuthPage = async (accessOption: AccessOption) => {
+    setLoading(true);
+    setMessage('');
+
+    try {
+      // Redirect to existing admin login with full context
+      const params = new URLSearchParams({
+        email: email.trim().toLowerCase(),
+        accessType: accessOption.accessType
+      });
+      
+      // Add organization context if it's tenant-specific
+      if (accessOption.tenantId) {
+        params.set('org', accessOption.tenantId);
+        params.set('orgName', accessOption.organizationName || '');
+      }
+      
+      console.log('🔄 Redirecting to auth with context:', {
+        email: email.trim().toLowerCase(),
+        accessType: accessOption.accessType,
+        tenantId: accessOption.tenantId,
+        orgName: accessOption.organizationName
+      });
+      
+      router.push(`/auth/login?${params.toString()}`);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Redirect failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const sendMagicLink = async (orgId: string) => {
+    setLoading(true);
     try {
       const response = await fetch('/api/member-access', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email: memberEmail })
-      })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          email: email.trim().toLowerCase(),
+          selectedTenantId: orgId
+        })
+      });
 
-      const data = await response.json()
-
-      if (!response.ok) {
-        setMessage(data.error || 'Failed to process request')
-        return
-      }
-
-      if (data.requiresOrgSelection) {
-        setOrganizations(data.organizations)
-        setShowOrgSelection(true)
-        setMessage('')
-      } else if (data.success) {
-        setMessage(data.message)
-        setShowSuccessMessage(true)
-        setMemberEmail('')
-      }
-
-    } catch (error) {
-      setMessage('Network error. Please try again.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const handleOrgSelection = async (tenantId: string) => {
-    setLoading(true)
-    setMessage('')
-
-    try {
-      const response = await fetch('/api/member-access', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email: memberEmail, selectedTenantId: tenantId })
-      })
-
-      const data = await response.json()
+      const data = await response.json();
 
       if (!response.ok) {
-        setMessage(data.error || 'Failed to process request')
-        return
+        throw new Error(data.error || 'Failed to send magic link');
       }
 
-      if (data.success) {
-        setMessage(data.message)
-        setMemberEmail('')
-        setShowOrgSelection(false)
-        setOrganizations([])
-        setShowSuccessMessage(true)
-      }
-
-    } catch (error) {
-      setMessage('Network error. Please try again.')
+      setMessage(data.message);
+      setCurrentStep('magic-link-sent');
+      setShowSuccessMessage(true);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Failed to send magic link');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
-  const resetMemberAccess = () => {
-    setShowMemberAccess(false)
-    setMemberEmail('')
-    setMessage('')
-    setOrganizations([])
-    setShowOrgSelection(false)
-    setShowSuccessMessage(false)
-    setLoading(false)
-  }
+  const handlePasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    // This function might not be needed anymore since we redirect directly
+    // Keeping for backward compatibility
+  };
+
+  const resetSignIn = () => {
+    setCurrentStep('email');
+    setEmail('');
+    setPassword('');
+    setSelectedOrgId('');
+    setUserRoleInfo(null);
+    setMessage('');
+    setShowSuccessMessage(false);
+    setShowSignIn(false);
+    setOrgSelectionLoading(false);
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -112,7 +185,7 @@ export default function HomePage() {
             <div className="flex items-center">
               {/* Logo */}
               <Image
-                src="/voluntold-logo.png" // You'll need to place the logo file in the public folder
+                src="/voluntold-logo.png"
                 alt="Voluntold"
                 width={200}
                 height={60}
@@ -122,16 +195,10 @@ export default function HomePage() {
             </div>
             <nav className="flex space-x-6">
               <button
-                onClick={() => router.push('/auth/login')}
-                className="text-blue-600 hover:text-blue-800 font-medium"
-              >
-                Admin Sign In
-              </button>
-              <button
-                onClick={() => setShowMemberAccess(true)}
+                onClick={() => setShowSignIn(true)}
                 className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 font-medium"
               >
-                Member Access
+                Sign In
               </button>
             </nav>
           </div>
@@ -141,7 +208,7 @@ export default function HomePage() {
       {/* Hero Section */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
         {/* Message Display */}
-        {message && (
+        {message && !showSignIn && (
           <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-md">
             <p className="text-blue-800">{message}</p>
           </div>
@@ -192,10 +259,6 @@ export default function HomePage() {
           </div>
         </div>
 
-          
-           
-          
-
         {/* Feature Preview Cards */}
         <div className="mt-20 grid grid-cols-1 md:grid-cols-3 gap-8">
           <div className="bg-white rounded-lg shadow p-6">
@@ -230,17 +293,18 @@ export default function HomePage() {
         </div>
       </main>
 
-      {/* Member Access Modal */}
-      {showMemberAccess && (
+      {/* Single Sign-In Modal */}
+      {showSignIn && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-semibold">
-                {showSuccessMessage ? 'Check Your Email' : 
-                 showOrgSelection ? 'Select Organization' : 'Member Portal Access'}
+                {currentStep === 'email' && 'Sign In'}
+                {currentStep === 'org-selection' && 'Select Access Type'}
+                {currentStep === 'magic-link-sent' && (showSuccessMessage ? 'Check Your Email' : 'Access Link Sent')}
               </h3>
               <button
-                onClick={resetMemberAccess}
+                onClick={resetSignIn}
                 className="text-gray-400 hover:text-gray-600"
                 disabled={loading}
               >
@@ -248,7 +312,98 @@ export default function HomePage() {
               </button>
             </div>
             
-            {showSuccessMessage ? (
+            {/* Email Entry Step */}
+            {currentStep === 'email' && (
+              <form className="space-y-4" onSubmit={handleEmailSubmit}>
+                <p className="text-gray-600 mb-4">
+                  Enter your email address to continue. We'll automatically determine the best sign-in method for you.
+                </p>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Email Address
+                  </label>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="Enter your email"
+                    disabled={loading}
+                    required
+                  />
+                </div>
+
+                {message && (
+                  <div className="text-red-600 text-sm">{message}</div>
+                )}
+
+                <div className="flex justify-end space-x-3 pt-4">
+                  <button
+                    type="button"
+                    onClick={resetSignIn}
+                    className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
+                    disabled={loading}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={loading || !email.trim()}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {loading ? 'Checking...' : 'Continue'}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* Organization Selection Step */}
+            {currentStep === 'org-selection' && userRoleInfo && (
+              <>
+                <p className="text-gray-600 mb-4">
+                  You have access to multiple options. Please select how you'd like to sign in:
+                </p>
+                
+                <div className="space-y-3 mb-4">
+                  {userRoleInfo.accessOptions.map((option) => (
+                    <button
+                      key={option.id}
+                      onClick={() => handleOrgSelection(option)}
+                      disabled={loading || orgSelectionLoading}
+                      className="w-full text-left p-3 border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+                    >
+                      <div className="font-medium">{option.name}</div>
+                      <div className="text-sm text-gray-500">
+                        {option.accessType === 'super_admin' && 'Full system access'}
+                        {option.accessType === 'tenant_admin' && 'Organization administrator'}
+                        {option.accessType === 'member' && 'Organization member'}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex justify-end space-x-3">
+                  {orgSelectionLoading ? (
+                    <div className="flex items-center space-x-2 text-blue-600">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                      <span className="text-sm">Processing your selection...</span>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setCurrentStep('email')}
+                      className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
+                      disabled={loading}
+                    >
+                      ← Back
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
+
+            {/* Magic Link Sent Step */}
+            {currentStep === 'magic-link-sent' && (
               <>
                 <div className="text-center py-6">
                   <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -256,99 +411,22 @@ export default function HomePage() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                     </svg>
                   </div>
-                  <h4 className="text-lg font-semibold text-gray-900 mb-3">Access Link Sent!</h4>
-                  <p className="text-gray-600 mb-6">{message}</p>
+                  <h4 className="text-lg font-semibold text-gray-900 mb-3">
+                    {showSuccessMessage ? 'Access Link Sent!' : 'Check Your Email'}
+                  </h4>
+                  <p className="text-gray-600 mb-6">
+                    {message || 'If an account exists with that email address, we\'ve sent you a magic link to sign in.'}
+                  </p>
                 </div>
 
                 <div className="flex justify-center">
                   <button
-                    onClick={resetMemberAccess}
+                    onClick={resetSignIn}
                     className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-medium"
                   >
                     Done
                   </button>
                 </div>
-              </>
-            ) :  !showOrgSelection ? (
-              <>
-                <p className="text-gray-600 mb-4">
-                  Enter your email address to access your member portal. We'll send you a secure access link.
-                </p>
-                
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Email Address
-                    </label>
-                    <input
-                      type="email"
-                      value={memberEmail}
-                      onChange={(e) => setMemberEmail(e.target.value)}
-                      onKeyPress={(e) => e.key === 'Enter' && handleMemberAccess()}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      placeholder="member@email.com"
-                      disabled={loading}
-                    />
-                  </div>
-
-                  <div className="flex justify-end space-x-3 pt-4">
-                    <button
-                      onClick={resetMemberAccess}
-                      className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
-                      disabled={loading}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={handleMemberAccess}
-                      disabled={loading || !memberEmail.trim()}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
-                    >
-                      {loading ? 'Sending...' : 'Send Access Link'}
-                    </button>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <>
-                <p className="text-gray-600 mb-4">
-                  You're a member of multiple organizations. Please select which one you'd like to access:
-                </p>
-                
-                <div className="space-y-3 mb-4">
-                  {organizations.map((org) => (
-                    <button
-                      key={org.tenant_id}
-                      onClick={() => handleOrgSelection(org.tenant_id)}
-                      disabled={loading}
-                      className="w-full text-left p-3 border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      <div className="font-medium">{org.tenant_name}</div>
-                    </button>
-                  ))}
-                </div>
-
-                <div className="flex justify-end space-x-3">
-                  <button
-                    onClick={() => {
-                      setShowOrgSelection(false)
-                      setOrganizations([])
-                    }}
-                    className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
-                    disabled={loading}
-                  >
-                    Back
-                  </button>
-                </div>
-
-                {loading && (
-                  <div className="mt-4 text-center">
-                    <div className="inline-flex items-center">
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
-                      <span className="text-sm text-gray-600">Sending access link...</span>
-                    </div>
-                  </div>
-                )}
               </>
             )}
           </div>
