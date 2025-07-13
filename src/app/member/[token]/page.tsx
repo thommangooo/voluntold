@@ -440,7 +440,7 @@ export default function MemberPortal({ params }: { params: { token: string } }) 
 
       const opportunity = upcomingOpportunities.find(opp => opp.id === opportunityId)
       if (opportunity && currentSignups && currentSignups >= opportunity.volunteers_needed) {
-        setMessage('This opportunity is already full.')
+        setMessage('This Sign-up Sheet is already full.')
         return
       }
 
@@ -548,11 +548,11 @@ export default function MemberPortal({ params }: { params: { token: string } }) 
           {/* Upcoming Opportunities */}
           <div className="bg-white rounded-lg shadow">
             <div className="px-6 py-4 border-b">
-              <h2 className="text-xl font-semibold">Upcoming Opportunities</h2>
+              <h2 className="text-xl font-semibold">Upcoming Sign-up Sheets</h2>
             </div>
             <div className="p-6">
               {upcomingOpportunities.length === 0 ? (
-                <p className="text-gray-500 text-center py-8">No upcoming opportunities available.</p>
+                <p className="text-gray-500 text-center py-8">No upcoming Sign-ups available.</p>
               ) : (
                 <div className="space-y-4">
                   {upcomingOpportunities.map((opportunity) => (
@@ -646,7 +646,7 @@ export default function MemberPortal({ params }: { params: { token: string } }) 
                   {/* Hours Breakdown */}
                   <div className="space-y-3 mb-6">
                     <div className="flex justify-between">
-                      <span className="text-gray-600">From tunities:</span>
+                      <span className="text-gray-600">From Sign Ups:</span>
                       <span className="font-medium">{hoursBreakdown.opportunity_hours} hrs</span>
                     </div>
                     <div className="flex justify-between">
