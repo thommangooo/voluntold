@@ -1163,7 +1163,7 @@ const addResource = async (e: React.FormEvent) => {
                 disabled={loading}
                 className="bg-blue-600 text-white py-2 px-6 rounded-md hover:bg-blue-700 disabled:opacity-50"
               >
-                {loading ? 'Creating...' : 'Create Opportunity'}
+                {loading ? 'Creating...' : 'Create Sign-up Sheet'}
               </button>
             </form>
           )}
