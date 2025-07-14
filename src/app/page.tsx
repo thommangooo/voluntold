@@ -1,5 +1,5 @@
-// File: src/app/page.tsx
-// Version: v34 - Single sign-in flow preserving existing marketing content (syntax fixed)
+// File: src/app/HomePage.tsx
+// Version: v35 - v34 component with SEO-optimized content
 
 'use client'
 import { useState } from 'react'
@@ -186,7 +186,7 @@ export default function HomePage() {
               {/* Logo */}
               <Image
                 src="/voluntold-logo.png"
-                alt="Voluntold"
+                alt="Voluntold - Free Online Sign-up Sheets & Member Polling"
                 width={200}
                 height={60}
                 className="h-12 w-auto"
@@ -216,12 +216,12 @@ export default function HomePage() {
         
         <div className="text-center">
           <h1 className="text-4xl font-bold text-gray-900 sm:text-5xl md:text-6xl">
-            Keeping Busy Volunteers
-            <span className="text-blue-600"> In Sync!</span>
+            Keep Busy Volunteers
+            <span className="text-blue-600"> In Sync with Sign-up Sheets & Polling!</span>
           </h1>
           <p className="mt-6 max-w-3xl mx-auto text-xl text-gray-600">
-            Streamline your organization's volunteer coordination with our comprehensive platform. 
-            Manage projects, sign-up sheets, voting and keep your team connected.
+            Create professional online sign-up sheets and member polling for your organization's volunteer coordination. 
+            Manage projects, track sign-ups, conduct voting, and keep your team connected with email notifications.
           </p>
           
           {/* Marketing Content - 60/40 Split */}
@@ -229,9 +229,11 @@ export default function HomePage() {
             <div className="flex flex-col lg:flex-row items-center gap-8">
               {/* Text Content - 60% */}
               <div className="lg:w-3/5 w-full">
-                <h3 className="text-lg font-semibold text-blue-900 mb-4">Voluntold Helps!</h3>
+                <h2 className="text-lg font-semibold text-blue-900 mb-4">Voluntold Makes Sign-up Sheets & Member Polling Easy!</h2>
                 <p className="text-gray-700 italic mb-6">
-                  We make it easy to manage your projects, sign up sheets, and keep your members in sync. No more paper sign up sheets, no more confusion about who's doing what. Just simple, effective management of your community group.
+                  We make it easy to create online sign-up sheets, manage your projects, and conduct member polling to keep your volunteers in sync. 
+                  No more paper sign-up sheets, no more confusion about who's doing what, no more difficult voting processes. 
+                  Just simple, effective management of your community group with professional email notifications.
                   And, it's free for the first year. Let's get your group set up!
                 </p>
                 
@@ -240,7 +242,7 @@ export default function HomePage() {
                   onClick={() => router.push('/join')}
                   className="bg-white text-blue-600 border-2 border-blue-600 px-6 py-3 rounded-md hover:bg-blue-50 font-semibold transition-colors"
                 >
-                  Let's Get Started!
+                  Start Creating Sign-up Sheets!
                 </button>
               </div>
               
@@ -248,7 +250,7 @@ export default function HomePage() {
               <div className="lg:w-2/5 w-full">
                 <Image
                   src="/signups.png"
-                  alt="Sign up sheets management"
+                  alt="Online sign-up sheets and member polling management interface"
                   width={400}
                   height={300}
                   className="w-full h-64 object-cover rounded-lg"
@@ -267,8 +269,8 @@ export default function HomePage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
               </svg>
             </div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Manage Sign Up Sheets</h3>
-            <p className="text-gray-600">Create & Manage sign-up sheets with ease. Whether it's a series of work party shifts or a one-off to-do,  volunteers can enroll with one click - right from their inbox.  They can also change their commitments and keep the team updated.</p>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Online Sign-up Sheets Made Easy</h3>
+            <p className="text-gray-600">Create & manage professional sign-up sheets with ease. Whether it's a series of work party shifts or a one-off task, volunteers can enroll with one click - right from their inbox. They can also change their commitments and keep the team updated with automatic email notifications.</p>
           </div>
 
           <div className="bg-white rounded-lg shadow p-6">
@@ -277,8 +279,8 @@ export default function HomePage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
               </svg>
             </div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Polling & Voting</h3>
-            <p className="text-gray-600">Easily keep of track of who's coming for dinner, who's bringing what, who's in favour of what motion. Polling can also be anonymous, time-bound and changeable for maximum flexibility.</p>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Member Polling & Voting System</h3>
+            <p className="text-gray-600">Easily keep track of who's coming for dinner, who's bringing what, who's in favour of what motion. Member polling can be anonymous, time-bound and changeable for maximum flexibility. Perfect for decision-making and gathering community feedback.</p>
           </div>
 
           <div className="bg-white rounded-lg shadow p-6">
@@ -287,11 +289,82 @@ export default function HomePage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
               </svg>
             </div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Member Self-Management</h3>
-            <p className="text-gray-600">Members receive calendar links and reminders for every scheduled sign up.  Members can access and update their commitments.  No passwords required for ease of member management.</p>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Volunteer Self-Management Portal</h3>
+            <p className="text-gray-600">Members receive calendar links and email reminders for every scheduled sign-up. Volunteers can access and update their commitments through their personal portal. No passwords required for ease of member management and maximum accessibility.</p>
+          </div>
+        </div>
+
+        {/* Additional SEO Content Section */}
+        <div className="mt-20 bg-white rounded-lg shadow-sm p-8">
+          <h2 className="text-2xl font-bold text-gray-900 mb-6 text-center">Complete Online Sign-up Sheet & Member Polling Solution</h2>
+          <div className="grid md:grid-cols-2 gap-8">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-3">Perfect for Organizations</h3>
+              <ul className="space-y-2 text-gray-600">
+                <li>• <strong>Nonprofits:</strong> Coordinate volunteers with professional sign-up sheets</li>
+                <li>• <strong>Churches:</strong> Manage events and member polling for decisions</li>
+                <li>• <strong>Schools:</strong> Organize parent volunteers and conduct voting</li>
+                <li>• <strong>Community Groups:</strong> Streamline volunteer coordination</li>
+                <li>• <strong>Sports Teams:</strong> Schedule volunteers and gather feedback</li>
+                <li>• <strong>Clubs & Associations:</strong> Manage members and conduct polls</li>
+              </ul>
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-3">Key Features</h3>
+              <ul className="space-y-2 text-gray-600">
+                <li>• <strong>Free sign-up sheets</strong> with unlimited volunteers</li>
+                <li>• <strong>Member polling system</strong> with anonymous options</li>
+                <li>• <strong>Email notifications</strong> for all sign-ups and changes</li>
+                <li>• <strong>Calendar integration</strong> for volunteer scheduling</li>
+                <li>• <strong>No passwords needed</strong> for volunteer access</li>
+                <li>• <strong>Multi-organization support</strong> for admins</li>
+              </ul>
+            </div>
           </div>
         </div>
       </main>
+
+      {/* SEO Footer */}
+      <footer className="bg-gray-900 text-white mt-16">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+          <div className="grid md:grid-cols-4 gap-8">
+            <div>
+              <h3 className="text-lg font-semibold mb-4">Voluntold</h3>
+              <p className="text-gray-400">Free online sign-up sheets and member polling platform for nonprofits, churches, schools, and community organizations.</p>
+            </div>
+            <div>
+              <h4 className="text-md font-semibold mb-4">Features</h4>
+              <ul className="space-y-2 text-gray-400">
+                <li><a href="/features" className="hover:text-white">Sign-up Sheets</a></li>
+                <li><a href="/features" className="hover:text-white">Member Polling</a></li>
+                <li><a href="/features" className="hover:text-white">Email Notifications</a></li>
+                <li><a href="/features" className="hover:text-white">Calendar Integration</a></li>
+              </ul>
+            </div>
+            <div>
+              <h4 className="text-md font-semibold mb-4">Organizations</h4>
+              <ul className="space-y-2 text-gray-400">
+                <li><a href="/nonprofit" className="hover:text-white">Nonprofits</a></li>
+                <li><a href="/churches" className="hover:text-white">Churches</a></li>
+                <li><a href="/schools" className="hover:text-white">Schools</a></li>
+                <li><a href="/community" className="hover:text-white">Community Groups</a></li>
+              </ul>
+            </div>
+            <div>
+              <h4 className="text-md font-semibold mb-4">Support</h4>
+              <ul className="space-y-2 text-gray-400">
+                <li><a href="/help" className="hover:text-white">Help Center</a></li>
+                <li><a href="/contact" className="hover:text-white">Contact Us</a></li>
+                <li><a href="/privacy" className="hover:text-white">Privacy Policy</a></li>
+                <li><a href="/terms" className="hover:text-white">Terms of Service</a></li>
+              </ul>
+            </div>
+          </div>
+          <div className="border-t border-gray-800 mt-8 pt-8 text-center text-gray-400">
+            <p>&copy; 2025 Voluntold. All rights reserved. Free online sign-up sheets and member polling for organizations.</p>
+          </div>
+        </div>
+      </footer>
 
       {/* Single Sign-In Modal */}
       {showSignIn && (
@@ -299,7 +372,7 @@ export default function HomePage() {
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-semibold">
-                {currentStep === 'email' && 'Sign In'}
+                {currentStep === 'email' && 'Sign In to Voluntold'}
                 {currentStep === 'org-selection' && 'Select Access Type'}
                 {currentStep === 'magic-link-sent' && (showSuccessMessage ? 'Check Your Email' : 'Access Link Sent')}
               </h3>
@@ -316,7 +389,7 @@ export default function HomePage() {
             {currentStep === 'email' && (
               <form className="space-y-4" onSubmit={handleEmailSubmit}>
                 <p className="text-gray-600 mb-4">
-                  Enter your email address to continue. We'll automatically determine the best sign-in method for you.
+                  Enter your email address to access your sign-up sheets and member polling. We'll automatically determine the best sign-in method for you.
                 </p>
                 
                 <div>
@@ -362,7 +435,7 @@ export default function HomePage() {
             {currentStep === 'org-selection' && userRoleInfo && (
               <>
                 <p className="text-gray-600 mb-4">
-                  You have access to multiple options. Please select how you'd like to sign in:
+                  You have access to multiple organizations. Please select how you'd like to sign in:
                 </p>
                 
                 <div className="space-y-3 mb-4">
@@ -415,7 +488,7 @@ export default function HomePage() {
                     {showSuccessMessage ? 'Access Link Sent!' : 'Check Your Email'}
                   </h4>
                   <p className="text-gray-600 mb-6">
-                    {message || 'If an account exists with that email address, we\'ve sent you a magic link to sign in.'}
+                    {message || 'If an account exists with that email address, we\'ve sent you a magic link to access your sign-up sheets and member polling.'}
                   </p>
                 </div>
 
