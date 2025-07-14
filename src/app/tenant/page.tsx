@@ -1,5 +1,5 @@
 // File: src/app/tenant/page.tsx
-// Version: 2.2 - Fixed context handling for dual-role users
+// Version: 2.3 - Added member search functionality
 
 'use client'
 import Header from '../../components/Header'
@@ -95,6 +95,8 @@ export default function TenantDashboard() {
   const [tenantInfo, setTenantInfo] = useState<TenantInfo | null>(null)
   const [projects, setProjects] = useState<Project[]>([])
   const [members, setMembers] = useState<Member[]>([])
+  const [filteredMembers, setFilteredMembers] = useState<Member[]>([])
+  const [memberSearch, setMemberSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState('')
   const [showProjectForm, setShowProjectForm] = useState(false)
@@ -137,6 +139,26 @@ export default function TenantDashboard() {
     address: '',
     role: 'member'
   })
+
+  // Filter members based on search
+  const handleMemberSearch = (searchTerm: string) => {
+    setMemberSearch(searchTerm)
+  }
+
+  // Update filtered members when members or search changes
+  useEffect(() => {
+    if (!memberSearch.trim()) {
+      setFilteredMembers(members)
+    } else {
+      const filtered = members.filter(member => 
+        `${member.first_name} ${member.last_name}`.toLowerCase().includes(memberSearch.toLowerCase()) ||
+        member.email.toLowerCase().includes(memberSearch.toLowerCase()) ||
+        (member.position && member.position.toLowerCase().includes(memberSearch.toLowerCase())) ||
+        member.role.toLowerCase().includes(memberSearch.toLowerCase())
+      )
+      setFilteredMembers(filtered)
+    }
+  }, [members, memberSearch])
 
   const loadPolls = async (tenantId: string) => {
     try {
@@ -332,6 +354,7 @@ export default function TenantDashboard() {
 
       if (error) throw error
       setMembers(data || [])
+      setFilteredMembers(data || [])
     } catch (error) {
       setMessage(`Error loading members: ${(error as Error).message}`)
     }
@@ -1118,24 +1141,41 @@ export default function TenantDashboard() {
               </div>
             </div>
 
-            {/* Members Panel */}
+            {/* Members Panel - Enhanced with Search */}
             <div className="bg-white rounded-lg shadow flex flex-col h-[calc(100vh-300px)]">
               <div className="px-6 py-4 border-b flex-shrink-0">
-                <div className="flex justify-between items-center">
-                  <h2 className="text-xl font-semibold">Members ({members.length})</h2>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setShowBulkAddModal(true)}
-                      className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
-                    >
-                      Bulk Add
-                    </button>
-                    <button
-                      onClick={() => setShowMemberForm(!showMemberForm)}
-                      className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
-                    >
-                      {showMemberForm ? 'Hide Form' : 'Add Member'}
-                    </button>
+                <div className="flex justify-between items-center mb-3">
+                  <h2 className="text-xl font-semibold">Members</h2>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-500">
+                      {filteredMembers.length} of {members.length}
+                    </span>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setShowBulkAddModal(true)}
+                        className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
+                      >
+                        Bulk Add
+                      </button>
+                      <button
+                        onClick={() => setShowMemberForm(!showMemberForm)}
+                        className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
+                      >
+                        {showMemberForm ? 'Hide Form' : 'Add Member'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Search members..."
+                    value={memberSearch}
+                    onChange={(e) => handleMemberSearch(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                  <div className="absolute right-3 top-2.5 text-gray-400">
+                    🔍
                   </div>
                 </div>
               </div>
@@ -1241,11 +1281,17 @@ export default function TenantDashboard() {
               )}
 
               <div className="p-6 flex-1 overflow-hidden">
-                {members.length === 0 ? (
-                  <p className="text-gray-500 text-center py-8">No members yet. Add your first team member!</p>
+                {filteredMembers.length === 0 ? (
+                  <div className="text-center py-8">
+                    {memberSearch ? (
+                      <p className="text-gray-500">No members found matching "{memberSearch}"</p>
+                    ) : (
+                      <p className="text-gray-500">No members yet. Add your first team member!</p>
+                    )}
+                  </div>
                 ) : (
                   <div className="h-full overflow-y-auto space-y-4 pr-2">
-                    {members.map((member) => (
+                    {filteredMembers.map((member) => (
                       <div key={member.id} className="border rounded-lg p-4 hover:shadow-sm transition-shadow relative">
                         <button
                           onClick={() => setDeletingMember(member)}
@@ -1305,6 +1351,7 @@ export default function TenantDashboard() {
             </div>
           </div>
 
+          {/* All the existing modals remain the same */}
           {/* Edit Member Modal */}
           {editingMember && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -1537,7 +1584,7 @@ export default function TenantDashboard() {
             </div>
           )}
 
-          {/* Poll Results Modal */}
+          {/* Poll Results Modal - keeping as is for brevity, but it's the same */}
           {viewingPoll && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
               <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-screen overflow-y-auto">
