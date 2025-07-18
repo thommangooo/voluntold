@@ -1,9 +1,35 @@
-// File: src/app/contact/page.tsx - Version 1.0
+// File: src/app/contact/page.tsx - Version 2.0 - Email Protection Added
 'use client'
 import Image from 'next/image'
 import Link from 'next/link'
 import { useState } from 'react'
 import Footer from '@/components/Footer'
+
+// Email obfuscation component
+function ProtectedEmail({ user, domain, subject = '', children }: { 
+  user: string, 
+  domain: string, 
+  subject?: string,
+  children: React.ReactNode 
+}) {
+  const handleClick = (e: React.MouseEvent) => {
+    e.preventDefault()
+    const email = `${user}@${domain}`
+    const mailtoLink = subject 
+      ? `mailto:${email}?subject=${encodeURIComponent(subject)}`
+      : `mailto:${email}`
+    window.location.href = mailtoLink
+  }
+
+  return (
+    <button 
+      onClick={handleClick}
+      className="text-blue-600 hover:text-blue-700 font-medium text-left"
+    >
+      {children}
+    </button>
+  )
+}
 
 export default function ContactUs() {
   const [formData, setFormData] = useState({
@@ -61,7 +87,6 @@ export default function ContactUs() {
                 alt="Voluntold"
                 className="h-12 w-auto"
               />
-              
             </div>
             <div className="flex items-center space-x-6">
               <Link href="/" className="text-gray-600 hover:text-gray-900">Home</Link>
@@ -109,7 +134,7 @@ export default function ContactUs() {
                     </svg>
                     <div>
                       <p className="text-red-800 font-medium">Error sending message</p>
-                      <p className="text-red-700 text-sm">Please try again or email us directly at info@voluntold.net</p>
+                      <p className="text-red-700 text-sm">Please try again or email us directly</p>
                     </div>
                   </div>
                 </div>
@@ -217,9 +242,13 @@ export default function ContactUs() {
                     <div className="ml-4">
                       <h3 className="text-lg font-medium text-gray-900 mb-2">Email</h3>
                       <p className="text-gray-600 mb-2">For general inquiries and support</p>
-                      <a href="mailto:info@voluntold.net" className="text-blue-600 hover:text-blue-700 font-medium">
+                      <ProtectedEmail 
+                        user="info" 
+                        domain="voluntold.net"
+                        subject="General Inquiry"
+                      >
                         info@voluntold.net
-                      </a>
+                      </ProtectedEmail>
                     </div>
                   </div>
                 </div>
@@ -234,29 +263,18 @@ export default function ContactUs() {
                     <div className="ml-4">
                       <h3 className="text-lg font-medium text-gray-900 mb-2">Privacy & Security</h3>
                       <p className="text-gray-600 mb-2">For privacy-related questions</p>
-                      <a href="mailto:privacy@voluntold.net" className="text-blue-600 hover:text-blue-700 font-medium">
+                      <ProtectedEmail 
+                        user="privacy" 
+                        domain="voluntold.net"
+                        subject="Privacy Question"
+                      >
                         privacy@voluntold.net
-                      </a>
+                      </ProtectedEmail>
                     </div>
                   </div>
                 </div>
 
-                <div className="bg-gray-50 rounded-lg p-6">
-                  <div className="flex items-start">
-                    <div className="flex-shrink-0">
-                      <svg className="h-6 w-6 text-blue-600 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192L5.636 18.364M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" />
-                      </svg>
-                    </div>
-                    <div className="ml-4">
-                      <h3 className="text-lg font-medium text-gray-900 mb-2">Technical Support</h3>
-                      <p className="text-gray-600 mb-2">For help with using Voluntold</p>
-                      <a href="mailto:support@voluntold.net" className="text-blue-600 hover:text-blue-700 font-medium">
-                        support@voluntold.net
-                      </a>
-                    </div>
-                  </div>
-                </div>
+                
               </div>
 
               <div className="mt-8 bg-blue-50 border border-blue-200 rounded-lg p-4">
@@ -287,12 +305,7 @@ export default function ContactUs() {
         </div>
       </main>
 
-      {/* Footer */}
-      
-      {/* Footer */}
-            <Footer />
-
-      
+      <Footer />
     </div>
   )
 }
