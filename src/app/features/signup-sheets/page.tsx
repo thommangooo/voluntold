@@ -7,63 +7,69 @@ export default function SignupSheetsFeature() {
   return (
     <div className="bg-white min-h-screen">
       {/* Header */}
-      <header className="bg-white shadow-sm border-b">
-        <div className="max-w-6xl mx-auto px-4 py-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <Image 
-                src="/voluntold-logo.png" 
-                alt="Voluntold" 
-                width={32} 
-                height={32}
-                className="h-8 w-auto"
-              />
-              <h1 className="text-2xl font-bold text-gray-900">Voluntold</h1>
-            </div>
-            <div className="flex items-center space-x-6">
-              <Link href="/" className="text-gray-600 hover:text-gray-900">
-                Home
-              </Link>
-              <Link href="/help" className="text-gray-600 hover:text-gray-900">
-                Help Center
-              </Link>
-              <Link href="/contact" className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition duration-200">
-                Get Started
-              </Link>
-            </div>
-          </div>
-        </div>
-      </header>
+<header className="bg-white shadow-sm border-b">
+  <div className="max-w-6xl mx-auto px-4 py-6">
+    <div className="flex items-center justify-between">
+      <div className="flex items-center space-x-3">
+        <img
+          src="/voluntold-logo.png"
+          alt="Voluntold"
+          className="h-12 w-auto"
+        />
+        
+      </div>
+      <div className="flex items-center space-x-6">
+        <Link href="/" className="text-gray-600 hover:text-gray-900">Home</Link>
+        <Link href="/help" className="text-gray-600 hover:text-gray-900">Help Center</Link>
+        <Link href="/contact" className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 transition duration-200">Get Started</Link>
+      </div>
+    </div>
+  </div>
+</header>
 
-      {/* Hero Section */}
+       {/* Hero Section */}
       <section className="bg-gradient-to-br from-blue-50 to-indigo-100 py-20">
         <div className="max-w-6xl mx-auto px-4">
-          <div className="text-center">
-            <h1 className="text-4xl md:text-5xl font-bold text-gray-900 mb-6">
-              Smart Sign-Up Sheets That
-              <span className="text-blue-600"> Work for You</span>
-            </h1>
-            <p className="text-xl text-gray-600 mb-8 max-w-3xl mx-auto">
-              Transform your volunteer coordination with intelligent sign-up sheets that handle everything from creation to confirmation automatically.
-            </p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <Link href="/contact" className="bg-blue-600 text-white px-8 py-3 rounded-md text-lg font-medium hover:bg-blue-700 transition duration-200">
-                Start Free Trial
-              </Link>
-              <Link href="#how-it-works" className="border border-gray-300 text-gray-700 px-8 py-3 rounded-md text-lg font-medium hover:bg-gray-50 transition duration-200">
-                See How It Works
-              </Link>
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-8 items-center">
+            {/* Text Content - Takes up 3 columns (60% of space) */}
+            <div className="lg:col-span-3">
+              <h1 className="text-4xl md:text-5xl font-bold text-gray-900 mb-6">
+                Smart Sign-Up Sheets Keep Teams
+                <span className="text-blue-600"> In Sync!</span>
+              </h1>
+              <p className="text-xl text-gray-600 mb-8">
+                For your next project, keep your team in sync with online sign-up sheets that are easy to Create, Share, Complete and Manage.  Your members receive multiple sign-ups as a single email and can sign up to each with a single click.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-4">
+                <Link 
+                  href="/contact" 
+                  className="bg-blue-600 text-white px-8 py-3 rounded-md text-lg font-medium hover:bg-blue-700 transition duration-200"
+                >
+                  Start Free Trial
+                </Link>
+              </div>
+            </div>
+            
+            {/* Image - Takes up 2 columns (40% of space) */}
+            <div className="lg:col-span-2 flex justify-center lg:justify-end">
+              <Image
+                src="/images/sign-up-sheet.png"
+                alt="Digital sign-up sheet example"
+                width={400}
+                height={500}
+                className="max-w-full h-auto rounded-lg shadow-lg"
+              />
             </div>
           </div>
         </div>
       </section>
 
-      {/* Problem Statement */}
+        {/* Problem Statement */}
       <section className="py-16 bg-gray-50">
         <div className="max-w-6xl mx-auto px-4">
           <div className="text-center mb-12">
             <h2 className="text-3xl font-bold text-gray-900 mb-4">
-              Tired of Managing Volunteer Signups the Hard Way?
+              The Problem: Inbox Mayhem
             </h2>
             <p className="text-lg text-gray-600 max-w-2xl mx-auto">
               We know the pain of endless email chains, double bookings, and chasing down volunteers for simple events.
@@ -71,38 +77,38 @@ export default function SignupSheetsFeature() {
           </div>
 
           <div className="grid md:grid-cols-3 gap-8">
-            <div className="bg-white p-6 rounded-lg shadow-sm border border-red-100">
-              <div className="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center mb-4">
+            <div className="bg-red-50 border-2 border-red-200 p-6 rounded-lg shadow-sm">
+              <div className="w-12 h-12 bg-red-100 border-2 border-red-300 rounded-lg flex items-center justify-center mb-4">
                 <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
               </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Email Chaos</h3>
-              <p className="text-gray-600">
+              <h3 className="text-lg font-semibold text-red-900 mb-2">Email Chaos</h3>
+              <p className="text-red-700 italic">
                 Endless reply-all emails, lost messages, and confusion about who signed up for what.
               </p>
             </div>
 
-            <div className="bg-white p-6 rounded-lg shadow-sm border border-red-100">
-              <div className="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center mb-4">
+            <div className="bg-red-50 border-2 border-red-200 p-6 rounded-lg shadow-sm">
+              <div className="w-12 h-12 bg-red-100 border-2 border-red-300 rounded-lg flex items-center justify-center mb-4">
                 <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
               </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Double Bookings</h3>
-              <p className="text-gray-600">
+              <h3 className="text-lg font-semibold text-red-900 mb-2">Double Bookings</h3>
+              <p className="text-red-700 italic">
                 People signing up multiple times or events getting overbooked without you knowing.
               </p>
             </div>
 
-            <div className="bg-white p-6 rounded-lg shadow-sm border border-red-100">
-              <div className="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center mb-4">
+            <div className="bg-red-50 border-2 border-red-200 p-6 rounded-lg shadow-sm">
+              <div className="w-12 h-12 bg-red-100 border-2 border-red-300 rounded-lg flex items-center justify-center mb-4">
                 <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
               </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Time Wasted</h3>
-              <p className="text-gray-600">
+              <h3 className="text-lg font-semibold text-red-900 mb-2">Time Wasted</h3>
+              <p className="text-red-700 italic">
                 Hours spent manually tracking signups, sending reminders, and managing spreadsheets.
               </p>
             </div>
@@ -115,7 +121,7 @@ export default function SignupSheetsFeature() {
         <div className="max-w-6xl mx-auto px-4">
           <div className="text-center mb-12">
             <h2 className="text-3xl font-bold text-gray-900 mb-4">
-              Your Sign-Up Sheet Solution
+              The Solution: Smart, Simple, Online Sign-up Sheets
             </h2>
             <p className="text-lg text-gray-600 max-w-2xl mx-auto">
               Voluntold&apos;s intelligent sign-up sheets eliminate the headaches and automate the process from start to finish.

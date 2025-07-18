@@ -7,33 +7,25 @@ export default function DocumentStorageFeature() {
   return (
     <div className="min-h-screen">
       {/* Header */}
-      <header className="bg-white shadow-sm border-b">
-        <div className="max-w-6xl mx-auto px-4 py-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <Image 
-                src="/voluntold-logo.png" 
-                alt="Voluntold" 
-                width={32} 
-                height={32}
-                className="h-8 w-auto"
-              />
-              <h1 className="text-2xl font-bold text-gray-900">Voluntold</h1>
-            </div>
-            <div className="flex items-center space-x-6">
-              <Link href="/" className="text-gray-600 hover:text-gray-900">
-                Home
-              </Link>
-              <Link href="/help" className="text-gray-600 hover:text-gray-900">
-                Help Center
-              </Link>
-              <Link href="/contact" className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition duration-200">
-                Get Started
-              </Link>
-            </div>
-          </div>
-        </div>
-      </header>
+<header className="bg-white shadow-sm border-b">
+  <div className="max-w-6xl mx-auto px-4 py-6">
+    <div className="flex items-center justify-between">
+      <div className="flex items-center space-x-3">
+        <img
+          src="/voluntold-logo.png"
+          alt="Voluntold"
+          className="h-12 w-auto"
+        />
+        
+      </div>
+      <div className="flex items-center space-x-6">
+        <Link href="/" className="text-gray-600 hover:text-gray-900">Home</Link>
+        <Link href="/help" className="text-gray-600 hover:text-gray-900">Help Center</Link>
+        <Link href="/contact" className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 transition duration-200">Get Started</Link>
+      </div>
+    </div>
+  </div>
+</header>
 
       {/* Hero Section */}
       <section className="bg-gradient-to-br from-emerald-50 to-teal-100 py-20">
@@ -63,7 +55,7 @@ export default function DocumentStorageFeature() {
         <div className="max-w-6xl mx-auto px-4">
           <div className="text-center mb-12">
             <h2 className="text-3xl font-bold text-gray-900 mb-4">
-              Tired of Members Asking &quot;Where&apos;s That Link?&quot;
+              The Problem: Project information is buried deep in old email threads
             </h2>
             <p className="text-lg text-gray-600 max-w-2xl mx-auto">
               Important project resources and document links shouldn&apos;t be lost in email chains or scattered across different messages.
@@ -115,7 +107,7 @@ export default function DocumentStorageFeature() {
         <div className="max-w-6xl mx-auto px-4">
           <div className="text-center mb-12">
             <h2 className="text-3xl font-bold text-gray-900 mb-4">
-              One Central Hub for All Your Project Links
+              The Solution: A Project Library that's easy to access and manage
             </h2>
             <p className="text-lg text-gray-600 max-w-2xl mx-auto">
               Voluntold&apos;s resource hub keeps all your important document links organized and accessible to every member in one convenient location.

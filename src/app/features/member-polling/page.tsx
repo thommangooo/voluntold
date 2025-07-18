@@ -7,33 +7,25 @@ export default function EmailPollingFeature() {
   return (
     <div className="min-h-screen">
       {/* Header */}
-      <header className="bg-white shadow-sm border-b">
-        <div className="max-w-6xl mx-auto px-4 py-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <Image 
-                src="/voluntold-logo.png" 
-                alt="Voluntold" 
-                width={32} 
-                height={32}
-                className="h-8 w-auto"
-              />
-              <h1 className="text-2xl font-bold text-gray-900">Voluntold</h1>
-            </div>
-            <div className="flex items-center space-x-6">
-              <Link href="/" className="text-gray-600 hover:text-gray-900">
-                Home
-              </Link>
-              <Link href="/help" className="text-gray-600 hover:text-gray-900">
-                Help Center
-              </Link>
-              <Link href="/contact" className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition duration-200">
-                Get Started
-              </Link>
-            </div>
-          </div>
-        </div>
-      </header>
+<header className="bg-white shadow-sm border-b">
+  <div className="max-w-6xl mx-auto px-4 py-6">
+    <div className="flex items-center justify-between">
+      <div className="flex items-center space-x-3">
+        <img
+          src="/voluntold-logo.png"
+          alt="Voluntold"
+          className="h-12 w-auto"
+        />
+        
+      </div>
+      <div className="flex items-center space-x-6">
+        <Link href="/" className="text-gray-600 hover:text-gray-900">Home</Link>
+        <Link href="/help" className="text-gray-600 hover:text-gray-900">Help Center</Link>
+        <Link href="/contact" className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 transition duration-200">Get Started</Link>
+      </div>
+    </div>
+  </div>
+</header>
 
       {/* Hero Section */}
       <section className="bg-gradient-to-br from-purple-50 to-pink-100 py-20">

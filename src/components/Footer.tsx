@@ -20,10 +20,9 @@ export default function Footer() {
           <div>
             <h4 className="text-md font-semibold mb-4">Organizations</h4>
             <ul className="space-y-2 text-gray-400">
-              <li><a href="/nonprofit" className="hover:text-white">Nonprofits</a></li>
-              <li><a href="/churches" className="hover:text-white">Churches</a></li>
-              <li><a href="/schools" className="hover:text-white">Schools</a></li>
-              <li><a href="/community" className="hover:text-white">Community Groups</a></li>
+              <li><a href="/organizations/service-clubs" className="hover:text-white">Service Clubs</a></li>
+              <li><a href="/organizations/churches" className="hover:text-white">Churches</a></li>
+              <li><a href="/organizations/community-groups" className="hover:text-white">Community Groups</a></li>
             </ul>
           </div>
           <div>
