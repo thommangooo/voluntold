@@ -1,6 +1,7 @@
 // File: src/app/privacy/page.tsx - Version 1.1
 import Image from 'next/image'
 import Link from 'next/link'
+import Footer from '@/components/Footer'
 
 export default function PrivacyPolicy() {
   return (
@@ -20,7 +21,7 @@ export default function PrivacyPolicy() {
             <div className="flex items-center space-x-6">
               <Link href="/" className="text-gray-600 hover:text-gray-900">Home</Link>
               <Link href="/help" className="text-gray-600 hover:text-gray-900">Help Center</Link>
-              <Link href="/contact" className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 transition duration-200">Get Started</Link>
+              <Link href="/join" className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 transition duration-200">Get Started</Link>
             </div>
           </div>
         </div>
@@ -249,24 +250,9 @@ export default function PrivacyPolicy() {
       </main>
 
       {/* Footer */}
-      <footer className="bg-white border-t mt-12">
-        <div className="max-w-4xl mx-auto px-4 py-6">
-          <div className="flex items-center justify-between text-sm text-gray-600">
-            <p>&copy; 2025 Hounsell Inc. All rights reserved.</p>
-            <div className="flex space-x-6">
-              <Link href="/privacy" className="hover:text-gray-900 font-medium">
-                Privacy Policy
-              </Link>
-              <Link href="/terms" className="hover:text-gray-900">
-                Terms of Service
-              </Link>
-              <a href="mailto:support@voluntold.net" className="hover:text-gray-900">
-                Support
-              </a>
-            </div>
+       {/* Footer */}
+            <Footer />
           </div>
-        </div>
-      </footer>
-    </div>
+   
   )
 }
