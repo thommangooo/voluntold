@@ -249,13 +249,16 @@ export default function TenantDashboard() {
       setSelectedMember(null)
       setShowAddSignupForm(false)
       
+      
       // Update the managing opportunity counts immediately
-      const updatedOpportunity = {
-        ...managingOpportunity,
-        filled_count: managingOpportunity.filled_count + 1,
-        open_positions: Math.max(0, managingOpportunity.volunteers_needed - (managingOpportunity.filled_count + 1))
+      if (managingOpportunity) {
+        const updatedOpportunity = {
+          ...managingOpportunity,
+          filled_count: managingOpportunity.filled_count + 1,
+          open_positions: Math.max(0, managingOpportunity.volunteers_needed - (managingOpportunity.filled_count + 1))
+        }
+        setManagingOpportunity(updatedOpportunity)
       }
-      setManagingOpportunity(updatedOpportunity)
       
       // Reload data
       await loadOpportunitySignups(opportunity.id)
@@ -811,6 +814,30 @@ export default function TenantDashboard() {
         expires_at: ''
       })
       setShowPollForm(false)
+      loadPolls(tenantInfo.id)
+    } catch (error) {
+      setMessage(`Error: ${(error as Error).message}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const closePoll = async () => {
+    if (!pollToClose || !tenantInfo) return
+
+    setLoading(true)
+    setMessage('')
+
+    try {
+      const { error } = await supabase
+        .from('polls')
+        .update({ status: 'closed' })
+        .eq('id', pollToClose.id)
+
+      if (error) throw error
+
+      setMessage(`Poll "${pollToClose.title}" has been closed.`)
+      setPollToClose(null)
       loadPolls(tenantInfo.id)
     } catch (error) {
       setMessage(`Error: ${(error as Error).message}`)
@@ -1688,7 +1715,7 @@ export default function TenantDashboard() {
             </div>
           )}
 
-          {/* All the existing modals remain the same - keeping for brevity */}
+          
           {/* Edit Member Modal */}
           {editingMember && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -1809,7 +1836,7 @@ export default function TenantDashboard() {
             </div>
           )}
 
-          {/* All other existing modals unchanged for brevity - Delete Member, Edit Project, Poll Results, etc. */}
+          
           {/* Delete Member Confirmation Modal */}
           {deletingMember && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -1922,7 +1949,7 @@ export default function TenantDashboard() {
             </div>
           )}
 
-          {/* Remaining modals truncated for space but they're all still there */}
+          
           {/* Close Project Confirmation Modal */}
           {projectToClose && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -1946,6 +1973,296 @@ export default function TenantDashboard() {
                     className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
                   >
                     {loading ? 'Closing...' : 'Close Project'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Close Poll Confirmation Modal */}
+          {pollToClose && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg p-6 w-full max-w-md">
+                <h3 className="text-lg font-semibold mb-4">Close Poll</h3>
+                <p className="text-gray-600 mb-6">
+                  Are you sure you want to close <strong>"{pollToClose.title}"</strong>? 
+                  This will remove it from the active polls list and stop accepting new responses.
+                </p>
+                
+                <div className="flex justify-end space-x-3">
+                  <button
+                    onClick={() => setPollToClose(null)}
+                    className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={closePoll}
+                    disabled={loading}
+                    className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
+                  >
+                    {loading ? 'Closing...' : 'Close Poll'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+         {/* Poll Results Modal */}
+          {viewingPoll && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg p-6 w-full max-w-6xl max-h-screen overflow-y-auto">
+                <div className="flex justify-between items-start mb-6">
+                  <div>
+                    <h3 className="text-lg font-semibold">{viewingPoll.title}</h3>
+                    <p className="text-gray-600 mt-1">{viewingPoll.question}</p>
+                    <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
+                      <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                        viewingPoll.status === 'active' ? 'bg-green-100 text-green-800' :
+                        viewingPoll.status === 'closed' ? 'bg-gray-100 text-gray-800' :
+                        'bg-yellow-100 text-yellow-800'
+                      }`}>
+                        {viewingPoll.status}
+                      </span>
+                      <span>{viewingPoll.poll_type === 'yes_no' ? 'Yes/No' : 'Multiple Choice'}</span>
+                      {viewingPoll.is_anonymous && <span>Anonymous</span>}
+                      <span>{pollResponses.length} total responses</span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setViewingPoll(null)
+                      setPollResponses([])
+                    }}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* Response Summary */}
+                <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+                  <h4 className="font-medium mb-3">Response Summary</h4>
+                  {viewingPoll.poll_type === 'yes_no' ? (
+                    <div className="grid grid-cols-3 gap-4 text-center">
+                      <div>
+                        <div className="text-2xl font-bold text-green-600">
+                          {pollResponses.filter(r => r.response.toLowerCase() === 'yes').length}
+                        </div>
+                        <div className="text-sm text-gray-600">Yes</div>
+                      </div>
+                      <div>
+                        <div className="text-2xl font-bold text-red-600">
+                          {pollResponses.filter(r => r.response.toLowerCase() === 'no').length}
+                        </div>
+                        <div className="text-sm text-gray-600">No</div>
+                      </div>
+                      <div>
+                        <div className="text-2xl font-bold text-gray-600">
+                          {pollResponses.filter(r => !r.response || r.response.trim() === '').length}
+                        </div>
+                        <div className="text-sm text-gray-600">No Response</div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {viewingPoll.options?.map((option, index) => {
+                        const count = pollResponses.filter(r => r.response === option).length
+                        const percentage = pollResponses.length > 0 ? (count / pollResponses.length * 100).toFixed(1) : '0'
+                        return (
+                          <div key={index} className="flex items-center justify-between">
+                            <span className="text-sm">{option}</span>
+                            <div className="flex items-center gap-2">
+                              <div className="w-32 bg-gray-200 rounded-full h-2">
+                                <div
+                                  className="bg-blue-600 h-2 rounded-full"
+                                  style={{ width: `${percentage}%` }}
+                                ></div>
+                              </div>
+                              <span className="text-sm font-medium w-12 text-right">{count}</span>
+                            </div>
+                          </div>
+                        )
+                      })}
+                      <div className="flex items-center justify-between border-t pt-2">
+                        <span className="text-sm text-gray-600">No Response</span>
+                        <div className="flex items-center gap-2">
+                          <div className="w-32 bg-gray-200 rounded-full h-2">
+                            <div
+                              className="bg-gray-600 h-2 rounded-full"
+                              style={{ 
+                                width: `${pollResponses.length > 0 ? (pollResponses.filter(r => !r.response || r.response.trim() === '').length / pollResponses.length * 100) : 0}%` 
+                              }}
+                            ></div>
+                          </div>
+                          <span className="text-sm font-medium w-12 text-right">
+                            {pollResponses.filter(r => !r.response || r.response.trim() === '').length}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Individual Responses */}
+                <div>
+                  <div className="flex justify-between items-center mb-4">
+                    <h4 className="font-medium">Individual Responses</h4>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setShowAllResponses(!showAllResponses)}
+                        className="text-blue-600 hover:text-blue-800 text-sm"
+                      >
+                        {showAllResponses ? 'Show Responded Only' : 'Show All Members'}
+                      </button>
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-3 max-h-96 overflow-y-auto">
+                    {(showAllResponses ? pollResponses : pollResponses.filter(r => r.response && r.response.trim() !== ''))
+                      .sort((a, b) => {
+                        // Sort by response status, then by name
+                        if (a.response && !b.response) return -1
+                        if (!a.response && b.response) return 1
+                        return a.member_name.localeCompare(b.member_name)
+                      })
+                      .map((response) => (
+                        <div key={response.id} className="border rounded-lg p-4">
+                          <div className="flex justify-between items-start">
+                            <div className="flex-1">
+                              <div className="font-medium">{response.member_name}</div>
+                              {!viewingPoll.is_anonymous && (
+                                <div className="text-sm text-gray-600">{response.member_email}</div>
+                              )}
+                              <div className="mt-2">
+                                {response.response ? (
+                                  <span className={`inline-block px-2 py-1 text-xs font-semibold rounded-full ${
+                                    response.response.toLowerCase() === 'yes' ? 'bg-green-100 text-green-800' :
+                                    response.response.toLowerCase() === 'no' ? 'bg-red-100 text-red-800' :
+                                    'bg-blue-100 text-blue-800'
+                                  }`}>
+                                    {response.response}
+                                  </span>
+                                ) : (
+                                  <span className="inline-block px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-800">
+                                    No Response
+                                  </span>
+                                )}
+                              </div>
+                              {response.responded_at && (
+                                <div className="text-xs text-gray-500 mt-1">
+                                  Responded: {new Date(response.responded_at).toLocaleString()}
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => setEditingResponse(response)}
+                                className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                              >
+                                {response.response ? 'Edit' : 'Add Response'}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Edit Poll Response Modal */}
+          {editingResponse && viewingPoll && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg p-6 w-full max-w-md">
+                <h3 className="text-lg font-semibold mb-4">
+                  {editingResponse.response ? 'Edit Response' : 'Add Response'}
+                </h3>
+                <p className="text-gray-600 mb-4">
+                  <strong>{editingResponse.member_name}</strong>
+                </p>
+                <p className="text-sm text-gray-600 mb-4">{viewingPoll.question}</p>
+                
+                <form onSubmit={(e) => {
+                  e.preventDefault()
+                  const formData = new FormData(e.target as HTMLFormElement)
+                  const response = formData.get('response') as string
+                  updatePollResponse(editingResponse.id, response)
+                }} className="space-y-4">
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Response</label>
+                    {viewingPoll.poll_type === 'yes_no' ? (
+                      <select
+                        name="response"
+                        defaultValue={editingResponse.response || ''}
+                        className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                        required
+                      >
+                        <option value="">Select response...</option>
+                        <option value="Yes">Yes</option>
+                        <option value="No">No</option>
+                      </select>
+                    ) : (
+                      <select
+                        name="response"
+                        defaultValue={editingResponse.response || ''}
+                        className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                        required
+                      >
+                        <option value="">Select response...</option>
+                        {viewingPoll.options?.map((option, index) => (
+                          <option key={index} value={option}>{option}</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                  
+                  <div className="flex justify-end space-x-3">
+                    <button
+                      type="button"
+                      onClick={() => setEditingResponse(null)}
+                      className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {loading ? 'Saving...' : (editingResponse.response ? 'Update Response' : 'Add Response')}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Close Poll Confirmation Modal */}
+          {pollToClose && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg p-6 w-full max-w-md">
+                <h3 className="text-lg font-semibold mb-4">Close Poll</h3>
+                <p className="text-gray-600 mb-6">
+                  Are you sure you want to close <strong>"{pollToClose.title}"</strong>? 
+                  This will remove it from the active polls list and stop accepting new responses.
+                </p>
+                
+                <div className="flex justify-end space-x-3">
+                  <button
+                    onClick={() => setPollToClose(null)}
+                    className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={closePoll}
+                    disabled={loading}
+                    className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
+                  >
+                    {loading ? 'Closing...' : 'Close Poll'}
                   </button>
                 </div>
               </div>
