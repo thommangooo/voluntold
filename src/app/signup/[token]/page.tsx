@@ -178,7 +178,7 @@ export default function SignupPage() {
       'VERSION:2.0',
       'PRODID:-//Voluntold//Volunteer Signup//EN',
       'BEGIN:VEVENT',
-      `UID:${crypto.randomUUID()}@voluntold.app`,
+      `UID:${crypto.randomUUID()}@voluntold.net`,
       `DTSTART:${calendarData.startDateCal}`,
       `DTEND:${calendarData.endDateCal}`,
       `SUMMARY:${calendarData.title}`,

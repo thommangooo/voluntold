@@ -165,7 +165,7 @@ export async function sendOpportunityEmails(
   opportunities: Opportunity[],
   project: Project,
   tenant: TenantInfo,
-  fromEmail: string = 'noreply@voluntold.app'
+  fromEmail: string = 'noreply@voluntold.net'
 ) {
   const results = []
 

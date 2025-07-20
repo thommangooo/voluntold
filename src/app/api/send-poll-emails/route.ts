@@ -115,7 +115,7 @@ export async function POST(request: NextRequest) {
 
         // Send email
         const emailResult = await resend.emails.send({
-          from: process.env.FROM_EMAIL || 'polls@voluntold.app',
+          from: process.env.FROM_EMAIL || 'polls@voluntold.net',
           to: member.email,
           subject: `Poll: ${poll.title} - ${tenant.name}`,
           html: `
