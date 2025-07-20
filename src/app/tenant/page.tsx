@@ -1051,7 +1051,12 @@ export default function TenantDashboard() {
                           ×
                         </button>
                         
-                        <h3 className="font-semibold text-lg mb-2 pr-8">{project.name}</h3>
+                        <button
+                            onClick={() => router.push(`/tenant/projects/${project.id}`)}
+                            className="font-semibold text-lg mb-2 pr-8 text-blue-600 hover:text-blue-800 hover:underline cursor-pointer text-left"
+                          >
+                            {project.name}
+                          </button>
                         {project.description && (
                           <p className="text-gray-600 mb-3">{project.description}</p>
                         )}
@@ -1124,12 +1129,6 @@ export default function TenantDashboard() {
                             className="text-green-600 hover:text-green-800 font-medium cursor-pointer text-sm"
                           >
                             Edit
-                          </button>
-                          <button
-                            onClick={() => router.push(`/tenant/projects/${project.id}`)}
-                            className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
-                          >
-                            View Details →
                           </button>
                         </div>
                       </div>
@@ -1286,7 +1285,15 @@ export default function TenantDashboard() {
                         
                         <div className="flex justify-between items-start mb-3">
                           <div className="flex-1 pr-8">
-                            <h3 className="font-semibold text-lg">{poll.title}</h3>
+                            <button
+                              onClick={() => {
+                                setViewingPoll(poll)
+                                loadPollResponses(poll.id)
+                              }}
+                              className="font-semibold text-lg text-blue-600 hover:text-blue-800 hover:underline cursor-pointer text-left"
+                            >
+                              {poll.title}
+                            </button>
                             <p className="text-gray-600 mt-1">{poll.question}</p>
                             <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
                               <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
@@ -1309,15 +1316,6 @@ export default function TenantDashboard() {
                             className="text-purple-600 hover:text-purple-800 font-medium cursor-pointer text-sm"
                           >
                             Email Members
-                          </button>
-                          <button
-                            onClick={() => {
-                              setViewingPoll(poll)
-                              loadPollResponses(poll.id)
-                            }}
-                            className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
-                          >
-                            View Results →
                           </button>
                         </div>
                         
