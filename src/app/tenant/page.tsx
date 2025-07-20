@@ -142,6 +142,13 @@ export default function TenantDashboard() {
   const [pollResponses, setPollResponses] = useState<PollResponse[]>([])
   const [editingResponse, setEditingResponse] = useState<PollResponse | null>(null)
 
+  // Add these new state variables for member elevation
+  const [elevatingMember, setElevatingMember] = useState<Member | null>(null)
+  const [showElevationConfirm, setShowElevationConfirm] = useState(false)
+  const [showElevationNotification, setShowElevationNotification] = useState(false)
+  const [elevationCustomMessage, setElevationCustomMessage] = useState('')
+  const [elevationStep, setElevationStep] = useState<'confirm' | 'notify' | 'complete'>('confirm')
+
   const [newPoll, setNewPoll] = useState({
     title: '',
     question: '',
@@ -327,6 +334,87 @@ export default function TenantDashboard() {
       setMessage(`Error loading polls: ${(error as Error).message}`)
     }
   }
+
+  const elevateMemberToAdmin = async (member: Member, sendNotification: boolean, customMessage: string = '') => {
+  if (!tenantInfo) return
+
+  setLoading(true)
+  setMessage('')
+
+  try {
+    // Update the member's role to tenant_admin
+    const { error: updateError } = await supabase
+      .from('user_profiles')
+      .update({ role: 'tenant_admin' })
+      .eq('id', member.id)
+
+    if (updateError) throw updateError
+
+    let emailResult = null
+    if (sendNotification) {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        const response = await fetch('/api/member-elevation-notification', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            memberEmail: member.email,
+            memberName: `${member.first_name} ${member.last_name}`,
+            organizationName: tenantInfo.name,
+            customMessage: customMessage.trim(),
+            elevatedBy: session?.user?.id
+          })
+        })
+
+        emailResult = await response.json()
+        if (!response.ok) {
+          console.error('Notification email error:', emailResult.error)
+        }
+      } catch (emailError) {
+        console.error('Failed to send notification email:', emailError)
+      }
+    }
+
+    // Send password setup email
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      await fetch('/api/password-setup-reset', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: member.email,
+          type: 'new_admin_setup',
+          createdBy: session?.user?.id
+        })
+      })
+    } catch (setupError) {
+      console.error('Failed to send password setup email:', setupError)
+    }
+
+    // Set success message
+    let successMessage = `${member.first_name} ${member.last_name} has been elevated to admin and will receive a password setup email.`
+    if (sendNotification && emailResult?.success) {
+      successMessage += ` A notification email has also been sent.`
+    } else if (sendNotification && !emailResult?.success) {
+      successMessage += ` However, the notification email failed to send.`
+    }
+
+    setMessage(successMessage)
+    setElevationStep('complete')
+    
+    // Reload members to show updated role
+    loadMembers(tenantInfo.id)
+
+  } catch (error) {
+    setMessage(`Error elevating member: ${(error as Error).message}`)
+  } finally {
+    setLoading(false)
+  }
+}
 
   const loadTenantData = useCallback(async () => {
     try {
@@ -1809,7 +1897,7 @@ const resendSetupEmail = async (memberEmail: string) => {
           )}
 
           
-          {/* Edit Member Modal */}
+          {/* Complete Edit Member Modal */}
           {editingMember && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
               <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-screen overflow-y-auto">
@@ -1886,14 +1974,65 @@ const resendSetupEmail = async (memberEmail: string) => {
                     
                     <div>
                       <label className="block text-sm font-medium text-gray-700">Role</label>
-                      <select
-                        name="role"
-                        defaultValue={editingMember.role}
-                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                      >
-                        <option value="member">Member</option>
-                        <option value="tenant_admin">Admin</option>
-                      </select>
+                      {editingMember.role === 'member' ? (
+                        <div className="mt-1 space-y-2">
+                          <select
+                            name="role"
+                            defaultValue={editingMember.role}
+                            onChange={(e) => {
+                              if (e.target.value === 'tenant_admin') {
+                                // Start elevation process
+                                setElevatingMember(editingMember)
+                                setShowElevationConfirm(true)
+                                setElevationStep('confirm')
+                                // Reset the select back to member
+                                e.target.value = 'member'
+                              }
+                            }}
+                            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                          >
+                            <option value="member">Member</option>
+                            <option value="tenant_admin">Admin</option>
+                          </select>
+                          <p className="text-xs text-gray-500">
+                            Note: Elevating to admin requires additional confirmation steps
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="mt-1">
+                          <div className="px-3 py-2 bg-orange-50 border border-orange-200 rounded-md">
+                            <div className="flex items-center justify-between">
+                              <span className="text-orange-800 font-medium">Administrator</span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (confirm('Are you sure you want to remove admin privileges from this user? They will become a regular member and lose access to all administrative functions.')) {
+                                    // Handle role downgrade
+                                    const updatedData = {
+                                      firstName: editingMember.first_name,
+                                      lastName: editingMember.last_name,
+                                      email: editingMember.email,
+                                      phoneNumber: editingMember.phone_number || '',
+                                      position: editingMember.position || '',
+                                      address: editingMember.address || '',
+                                      role: 'member'
+                                    }
+                                    updateMember(updatedData)
+                                  }
+                                }}
+                                className="text-xs text-red-600 hover:text-red-800 underline font-medium"
+                              >
+                                Remove Admin Rights
+                              </button>
+                            </div>
+                            <p className="text-xs text-orange-600 mt-1">
+                              This user has full administrative access to the organization
+                            </p>
+                          </div>
+                          {/* Hidden input to maintain current role */}
+                          <input type="hidden" name="role" value={editingMember.role} />
+                        </div>
+                      )}
                     </div>
                   </div>
                   
@@ -1908,7 +2047,7 @@ const resendSetupEmail = async (memberEmail: string) => {
                     />
                   </div>
                   
-                  <div className="flex justify-end space-x-3">
+                  <div className="flex justify-end space-x-3 pt-4">
                     <button
                       type="button"
                       onClick={() => setEditingMember(null)}
@@ -1925,6 +2064,138 @@ const resendSetupEmail = async (memberEmail: string) => {
                     </button>
                   </div>
                 </form>
+              </div>
+            </div>
+          )}
+
+          {/* Member Elevation Confirmation Modal */}
+          {showElevationConfirm && elevatingMember && elevationStep === 'confirm' && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg p-6 w-full max-w-md">
+                <h3 className="text-lg font-semibold text-red-600 mb-4">⚠️ Elevate Member to Administrator</h3>
+                <p className="text-gray-700 mb-4">
+                  You are about to give <strong>{elevatingMember.first_name} {elevatingMember.last_name}</strong> full administrative privileges.
+                </p>
+                
+                <div className="bg-red-50 border border-red-200 rounded-md p-3 mb-6">
+                  <h4 className="font-medium text-red-800 mb-2">This will give them the ability to:</h4>
+                  <ul className="text-sm text-red-700 space-y-1">
+                    <li>• Add, edit, and delete all members</li>
+                    <li>• Create and manage all projects</li>
+                    <li>• Send emails to all members</li>
+                    <li>• Elevate other members to admin</li>
+                    <li>• Access all organization data</li>
+                  </ul>
+                </div>
+
+                <div className="flex justify-end space-x-3">
+                  <button
+                    onClick={() => {
+                      setShowElevationConfirm(false)
+                      setElevatingMember(null)
+                      setElevationStep('confirm')
+                    }}
+                    className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowElevationConfirm(false)
+                      setShowElevationNotification(true)
+                      setElevationStep('notify')
+                    }}
+                    className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
+                  >
+                    Continue with Elevation
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Member Elevation Notification Modal */}
+          {showElevationNotification && elevatingMember && elevationStep === 'notify' && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg p-6 w-full max-w-lg">
+                <h3 className="text-lg font-semibold mb-4">Notify New Administrator</h3>
+                <p className="text-gray-600 mb-4">
+                  Would you like to send <strong>{elevatingMember.first_name} {elevatingMember.last_name}</strong> a notification about their new admin role?
+                </p>
+
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Custom Message (Optional)
+                  </label>
+                  <textarea
+                    value={elevationCustomMessage}
+                    onChange={(e) => setElevationCustomMessage(e.target.value)}
+                    rows={4}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="Add a personal message that will be included in the notification email..."
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    This message will appear above the standard notification text.
+                  </p>
+                </div>
+
+                <div className="bg-blue-50 border border-blue-200 rounded-md p-3 mb-6">
+                  <p className="text-sm text-blue-800">
+                    <strong>Note:</strong> They will automatically receive a separate email with instructions to set up their admin password.
+                  </p>
+                </div>
+
+                <div className="flex justify-end space-x-3">
+                  <button
+                    onClick={() => {
+                      elevateMemberToAdmin(elevatingMember, false)
+                    }}
+                    disabled={loading}
+                    className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    Skip Notification
+                  </button>
+                  <button
+                    onClick={() => {
+                      elevateMemberToAdmin(elevatingMember, true, elevationCustomMessage)
+                    }}
+                    disabled={loading}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {loading ? 'Sending...' : 'Send Notification & Elevate'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Member Elevation Complete Modal */}
+          {elevatingMember && elevationStep === 'complete' && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg p-6 w-full max-w-md">
+                <div className="text-center">
+                  <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-3">Member Elevated Successfully!</h3>
+                  <p className="text-gray-600 mb-6">{message}</p>
+                  
+                  <button
+                    onClick={() => {
+                      setElevatingMember(null)
+                      setShowElevationNotification(false)
+                      setElevationStep('confirm')
+                      setElevationCustomMessage('')
+                      setEditingMember(null)
+                      setMessage('')
+                    }}
+                    className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-medium"
+                  >
+                    Done
+                  </button>
+                </div>
               </div>
             </div>
           )}
