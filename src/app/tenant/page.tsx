@@ -603,50 +603,126 @@ export default function TenantDashboard() {
     }
   }
 
-  const addMember = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!tenantInfo) return
+ const addMember = async (e: React.FormEvent) => {
+  e.preventDefault()
+  if (!tenantInfo) return
 
-    setLoading(true)
-    setMessage('')
+  setLoading(true)
+  setMessage('')
 
-    try {
-      const { error } = await supabase
-        .from('user_profiles')
-        .insert([
-          {
-            tenant_id: tenantInfo.id,
+  try {
+    // Check if this is an admin being created
+    const isAdminRole = newMember.role === 'tenant_admin'
+
+    const { error } = await supabase
+      .from('user_profiles')
+      .insert([
+        {
+          tenant_id: tenantInfo.id,
+          email: newMember.email,
+          first_name: newMember.firstName,
+          last_name: newMember.lastName,
+          phone_number: newMember.phoneNumber || null,
+          position: newMember.position || null,
+          address: newMember.address || null,
+          role: newMember.role,
+          id: crypto.randomUUID()
+        }
+      ])
+
+    if (error) throw error
+
+    // If creating an admin, automatically send password setup email
+    if (isAdminRole) {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        const response = await fetch('/api/password-setup-reset', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
             email: newMember.email,
-            first_name: newMember.firstName,
-            last_name: newMember.lastName,
-            phone_number: newMember.phoneNumber || null,
-            position: newMember.position || null,
-            address: newMember.address || null,
-            role: newMember.role,
-            id: crypto.randomUUID()
-          }
-        ])
+            type: 'new_admin_setup',
+            createdBy: session?.user?.id
+          })
+        })
 
-      if (error) throw error
+        const emailResult = await response.json()
 
+        if (response.ok) {
+          setMessage(`Admin ${newMember.firstName} ${newMember.lastName} added successfully! A password setup email has been sent to ${newMember.email}.`)
+        } else {
+          setMessage(`Admin ${newMember.firstName} ${newMember.lastName} added successfully, but failed to send setup email. Please manually send them their password setup link.`)
+          console.error('Setup email error:', emailResult.error)
+        }
+      } catch (emailError) {
+        setMessage(`Admin ${newMember.firstName} ${newMember.lastName} added successfully, but failed to send setup email. Please manually send them their password setup link.`)
+        console.error('Setup email error:', emailError)
+      }
+    } else {
+      // Regular member - no email needed
       setMessage(`Member ${newMember.firstName} ${newMember.lastName} added successfully!`)
-      setNewMember({ 
-        email: '', 
-        firstName: '', 
-        lastName: '', 
-        phoneNumber: '', 
-        position: '', 
-        address: '', 
-        role: 'member' 
-      })
-      setShowMemberForm(false)
-      loadMembers(tenantInfo.id)
-    } catch (error) {
-      setMessage(`Error: ${(error as Error).message}`)
-    } finally {
-      setLoading(false)
     }
+
+    setNewMember({ 
+      email: '', 
+      firstName: '', 
+      lastName: '', 
+      phoneNumber: '', 
+      position: '', 
+      address: '', 
+      role: 'member' 
+    })
+    setShowMemberForm(false)
+    loadMembers(tenantInfo.id)
+  } catch (error) {
+    setMessage(`Error: ${(error as Error).message}`)
+  } finally {
+    setLoading(false)
   }
+}
+const resendSetupEmail = async (memberEmail: string) => {
+  console.log('🔄 Resend setup email clicked for:', memberEmail)
+  console.log('🔄 Function starting...')
+  setLoading(true)
+  setMessage('')
+
+  try {
+    const { data: { session } } = await supabase.auth.getSession()
+    console.log('👤 Session user ID:', session?.user?.id)
+    
+    const requestBody = {
+      email: memberEmail,
+      type: 'new_admin_setup',
+      createdBy: session?.user?.id
+    }
+    console.log('📤 About to send request with body:', requestBody)
+    
+    const response = await fetch('/api/password-setup-reset', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody)
+    })
+
+    console.log('📧 API response status:', response.status)
+    const result = await response.json()
+    console.log('📧 API response data:', result)
+
+    if (response.ok) {
+      setMessage(`Setup email sent successfully to ${memberEmail}`)
+    } else {
+      setMessage(`Failed to send setup email: ${result.error}`)
+    }
+  } catch (error) {
+    console.error('❌ Resend setup email error:', error)
+    setMessage(`Error sending setup email: ${(error as Error).message}`)
+  } finally {
+    setLoading(false)
+  }
+}
 
   const updateMember = async (updatedData: any) => {
     if (!editingMember || !tenantInfo) return
@@ -1486,59 +1562,78 @@ export default function TenantDashboard() {
                   <div className="h-full overflow-y-auto space-y-4 pr-2">
                     {filteredMembers.map((member) => (
                       <div key={member.id} className="border rounded-lg p-4 hover:shadow-sm transition-shadow relative">
-                        <button
-                          onClick={() => setDeletingMember(member)}
-                          className="absolute top-2 right-2 text-gray-400 hover:text-red-500 text-lg font-bold w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-100"
-                          title="Delete member"
-                        >
-                          ×
-                        </button>
-                        
-                        <div className="flex justify-between items-start">
-                          <div className="flex-1 pr-8">
-                            <div className="mb-2">
-                              <button
-                                onClick={() => setEditingMember(member)}
-                                className="text-lg font-semibold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
-                                title="Click to edit member"
-                              >
-                                {member.first_name} {member.last_name}
-                              </button>
-                            </div>
-                            
-                            <div className="grid grid-cols-1 gap-2 text-sm text-gray-600">
-                              <div>
-                                {member.email}
+                          <button
+                            onClick={() => setDeletingMember(member)}
+                            className="absolute top-2 right-2 text-gray-400 hover:text-red-500 text-lg font-bold w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-100"
+                            title="Delete member"
+                          >
+                            ×
+                          </button>
+                          
+                          <div className="flex justify-between items-start">
+                            <div className="flex-1 pr-8">
+                              <div className="mb-2">
+                                <button
+                                  onClick={() => setEditingMember(member)}
+                                  className="text-lg font-semibold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                                  title="Click to edit member"
+                                >
+                                  {member.first_name} {member.last_name}
+                                </button>
                               </div>
-                              <div>
-                                {member.phone_number || '—'}
+                              
+                              <div className="grid grid-cols-1 gap-2 text-sm text-gray-600">
+                                <div>
+                                  {member.email}
+                                </div>
+                                <div>
+                                  {member.phone_number || '—'}
+                                </div>
                               </div>
-                            </div>
-                            
-                            {member.address && (
-                              <div className="mt-2 text-sm text-gray-600">
-                                {member.address}
-                              </div>
-                            )}
-                            
-                            <div className="mt-2 flex items-center gap-2">
-                              {member.position && (
+                              
+                              {member.address && (
+                                <div className="mt-2 text-sm text-gray-600">
+                                  {member.address}
+                                </div>
+                              )}
+                              
+                              <div className="mt-2 flex items-center gap-2">
+                                {member.position && (
+                                  <span className="text-xs text-gray-400">
+                                    {member.position}
+                                  </span>
+                                )}
+                                {member.position && (
+                                  <span className="text-xs text-gray-300">•</span>
+                                )}
                                 <span className="text-xs text-gray-400">
-                                  {member.position}
+                                  {member.role === 'tenant_admin' ? 'admin' : 'member'}
                                 </span>
-                              )}
-                              {member.position && (
-                                <span className="text-xs text-gray-300">•</span>
-                              )}
-                              <span className="text-xs text-gray-400">
-                                {member.role === 'tenant_admin' ? 'admin' : 'member'}
-                              </span>
+                                
+                                {/* Resend Setup Email icon for admins */}
+{/* Resend Setup Email icon for admins */}
+{member.role === 'tenant_admin' && (
+  <>
+    <span className="text-xs text-gray-300">•</span>
+    <button
+      onClick={() => resendSetupEmail(member.email)}
+      title="Resend password setup link to this admin"
+      className="text-blue-600 hover:text-blue-800 cursor-pointer p-1 rounded hover:bg-blue-50 transition-colors"
+    >
+      <img 
+        src="/mail-key.png" 
+        alt="Resend setup" 
+        className="w-6 h-6"
+      />
+    </button>
+  </>
+)}
+                              </div>
                             </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
-                  </div>
+                                            ))}
+                                          </div>
                 )}
               </div>
             </div>

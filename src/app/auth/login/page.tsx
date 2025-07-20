@@ -1,3 +1,6 @@
+// File: src/app/auth/login/page.tsx
+// Version: v2 - Added forgot password functionality
+
 'use client'
 
 import { useState, useEffect } from 'react'
@@ -11,6 +14,9 @@ function LoginForm() {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
+  const [showForgotPassword, setShowForgotPassword] = useState(false)
+  const [forgotPasswordLoading, setForgotPasswordLoading] = useState(false)
+  const [forgotPasswordMessage, setForgotPasswordMessage] = useState('')
   const router = useRouter()
   const searchParams = useSearchParams()
 
@@ -80,6 +86,43 @@ function LoginForm() {
       setMessage(`Error: ${error.message}`)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!email.trim()) {
+      setForgotPasswordMessage('Please enter your email address first.')
+      return
+    }
+
+    setForgotPasswordLoading(true)
+    setForgotPasswordMessage('')
+
+    try {
+      const response = await fetch('/api/password-setup-reset', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: email.trim(),
+          type: 'password_reset'
+        })
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        setForgotPasswordMessage(data.error || 'Failed to send reset email')
+        return
+      }
+
+      setForgotPasswordMessage(data.message)
+    } catch (error) {
+      setForgotPasswordMessage('Failed to send reset email. Please try again.')
+    } finally {
+      setForgotPasswordLoading(false)
     }
   }
 
@@ -160,58 +203,132 @@ function LoginForm() {
             )}
           </div>
           
-          <form className="mt-8 space-y-6" onSubmit={handleLogin}>
-            <div className="rounded-md shadow-sm -space-y-px">
-              <div>
-                <label htmlFor="email" className="sr-only">
-                  Email address
-                </label>
-                <input
-                  id="email"
-                  name="email"
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Email address"
-                />
+          {!showForgotPassword ? (
+            // Main login form
+            <form className="mt-8 space-y-6" onSubmit={handleLogin}>
+              <div className="rounded-md shadow-sm -space-y-px">
+                <div>
+                  <label htmlFor="email" className="sr-only">
+                    Email address
+                  </label>
+                  <input
+                    id="email"
+                    name="email"
+                    type="email"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="Email address"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="password" className="sr-only">
+                    Password
+                  </label>
+                  <input
+                    id="password"
+                    name="password"
+                    type="password"
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="Password"
+                  />
+                </div>
               </div>
-              <div>
-                <label htmlFor="password" className="sr-only">
-                  Password
-                </label>
-                <input
-                  id="password"
-                  name="password"
-                  type="password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Password"
-                />
-              </div>
-            </div>
 
-            <div>
-              <button
-                type="submit"
-                disabled={loading}
-                className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
-              >
-                {loading ? 'Signing in...' : 'Sign In'}
-              </button>
-            </div>
-
-            {message && (
-              <div className={`p-3 rounded-md text-sm ${
-                message.includes('Error') ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
-              }`}>
-                {message}
+              <div className="flex items-center justify-between">
+                <div></div>
+                <div className="text-sm">
+                  <button
+                    type="button"
+                    onClick={() => setShowForgotPassword(true)}
+                    className="font-medium text-blue-600 hover:text-blue-500"
+                  >
+                    Forgot your password?
+                  </button>
+                </div>
               </div>
-            )}
-          </form>
+
+              <div>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+                >
+                  {loading ? 'Signing in...' : 'Sign In'}
+                </button>
+              </div>
+
+              {message && (
+                <div className={`p-3 rounded-md text-sm ${
+                  message.includes('Error') ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+                }`}>
+                  {message}
+                </div>
+              )}
+            </form>
+          ) : (
+            // Forgot password form
+            <div className="mt-8 space-y-6">
+              <div>
+                <h3 className="text-xl font-semibold text-gray-900 text-center mb-2">
+                  Reset Your Password
+                </h3>
+                <p className="text-sm text-gray-600 text-center">
+                  Enter your email address and we'll send you a link to reset your password.
+                </p>
+              </div>
+
+              <form onSubmit={handleForgotPassword} className="space-y-4">
+                <div>
+                  <label htmlFor="reset-email" className="sr-only">
+                    Email address
+                  </label>
+                  <input
+                    id="reset-email"
+                    name="email"
+                    type="email"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="Enter your email address"
+                  />
+                </div>
+
+                <div className="flex space-x-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowForgotPassword(false)
+                      setForgotPasswordMessage('')
+                    }}
+                    className="flex-1 py-2 px-4 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 font-medium"
+                  >
+                    ← Back to Sign In
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={forgotPasswordLoading}
+                    className="flex-1 py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 font-medium"
+                  >
+                    {forgotPasswordLoading ? 'Sending...' : 'Send Reset Link'}
+                  </button>
+                </div>
+
+                {forgotPasswordMessage && (
+                  <div className={`p-3 rounded-md text-sm ${
+                    forgotPasswordMessage.includes('sent') ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                  }`}>
+                    {forgotPasswordMessage}
+                  </div>
+                )}
+              </form>
+            </div>
+          )}
         </div>
       </div>
     </div>
