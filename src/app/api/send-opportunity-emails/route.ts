@@ -1,3 +1,6 @@
+// File: src/app/api/send-opportunity-emails/route.ts
+// Version: 2.0 - Added project group targeting support
+
 import { NextRequest, NextResponse } from 'next/server'
 import { Resend } from 'resend'
 import { supabase } from '../../../lib/supabase'
@@ -28,14 +31,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Tenant not found' }, { status: 404 })
     }
 
-    // Get opportunities with project info
+    // Get opportunities with project targeting info
     const { data: opportunities, error: oppError } = await supabase
       .from('opportunities')
       .select(`
         *,
         projects (
+          id,
           name,
-          description
+          description,
+          target_all_members,
+          target_groups
         )
       `)
       .in('id', opportunityIds)
@@ -45,16 +51,98 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No opportunities found' }, { status: 404 })
     }
 
-    // Get all members
+    // Get all unique project IDs to determine targeting
+    const projectIds = [...new Set(opportunities.map(opp => opp.projects?.id).filter(Boolean))]
+    
+    // Collect all target member emails from all projects (with deduplication)
+    const allTargetEmails = new Set<string>()
+    const projectTargetingInfo: { [projectId: string]: { name: string; targeting: string } } = {}
+
+    for (const projectId of projectIds) {
+      const project = opportunities.find(opp => opp.projects?.id === projectId)?.projects
+      if (!project) continue
+
+      let targetEmails: string[] = []
+      let targetingDisplay = ''
+
+      if (project.target_all_members) {
+        // Get all members for this project
+        const { data: allMembers, error: allMembersError } = await supabase
+          .from('user_profiles')
+          .select('email')
+          .eq('tenant_id', tenantId)
+          .eq('role', 'member')
+
+        if (allMembersError) {
+          console.error('Error fetching all members:', allMembersError)
+          continue
+        }
+
+        targetEmails = allMembers?.map(m => m.email) || []
+        targetingDisplay = 'All Members'
+
+      } else if (project.target_groups && project.target_groups.length > 0) {
+        // Get members from selected groups (with deduplication)
+        const { data: groupMemberEmails, error: groupError } = await supabase
+          .rpc('get_group_member_emails', {
+            group_ids: project.target_groups,
+            tenant_id_param: tenantId
+          })
+
+        if (groupError) {
+          console.error('Error fetching group members:', groupError)
+          continue
+        }
+
+        targetEmails = groupMemberEmails || []
+
+        // Get group names for display
+        const { data: groups, error: groupNamesError } = await supabase
+          .from('groups')
+          .select('name')
+          .eq('tenant_id', tenantId)
+          .in('id', project.target_groups)
+
+        if (groupNamesError) {
+          console.warn('Failed to fetch group names:', groupNamesError)
+          targetingDisplay = 'Selected Groups'
+        } else {
+          const groupNames = groups?.map(g => g.name).join(', ') || 'Selected Groups'
+          targetingDisplay = `Groups: ${groupNames}`
+        }
+
+      } else {
+        // No targeting set - skip this project
+        console.warn(`Project ${project.name} has no targeting set`)
+        targetingDisplay = 'No Target Set'
+      }
+
+      // Add emails to the master set for deduplication
+      targetEmails.forEach(email => allTargetEmails.add(email))
+      
+      // Store targeting info for email footer
+      projectTargetingInfo[projectId] = {
+        name: project.name,
+        targeting: targetingDisplay
+      }
+    }
+
+    if (allTargetEmails.size === 0) {
+      return NextResponse.json({ error: 'No target members found for any project' }, { status: 404 })
+    }
+
+    // Get full member details for the target emails
     const { data: members, error: membersError } = await supabase
       .from('user_profiles')
       .select('email, first_name, last_name')
       .eq('tenant_id', tenantId)
-      .eq('role', 'member')
+      .in('email', Array.from(allTargetEmails))
 
     if (membersError || !members || members.length === 0) {
-      return NextResponse.json({ error: 'No members found' }, { status: 404 })
+      return NextResponse.json({ error: 'No member details found' }, { status: 404 })
     }
+
+    console.log(`Sending opportunities to ${members.length} targeted members`)
 
     // Group opportunities by project
     const projectGroups: { [projectName: string]: any[] } = {}
@@ -65,6 +153,12 @@ export async function POST(request: NextRequest) {
       }
       projectGroups[projectName].push(opp)
     })
+
+    // Create targeting summary for email footer
+    const uniqueTargetingInfo = Object.values(projectTargetingInfo)
+    const targetingSummary = uniqueTargetingInfo.length === 1 
+      ? uniqueTargetingInfo[0].targeting
+      : uniqueTargetingInfo.map(info => `${info.name}: ${info.targeting}`).join('; ')
 
     // Format date/time for opportunities
     const formatDateTime = (opportunity: any) => {
@@ -89,7 +183,7 @@ export async function POST(request: NextRequest) {
       return parts.length > 0 ? parts.join(' ') : 'Flexible timing'
     }
 
-    // Send emails to all members
+    // Send emails to targeted members only
     const emailResults = []
     const allTokensToStore = []
 
@@ -146,7 +240,7 @@ export async function POST(request: NextRequest) {
             </div>`
         }).join('')
 
-        // Send email to this member
+        // Send email to this member with enhanced footer
         const { data, error } = await resend.emails.send({
           from: 'noreply@voluntold.net',
           to: [member.email],
@@ -162,7 +256,7 @@ export async function POST(request: NextRequest) {
             <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #374151; max-width: 600px; margin: 0 auto; padding: 20px;">
               
               <div style="text-align: center; margin-bottom: 32px; padding: 20px; background: #f9fafb; border-radius: 8px;">
-                <h1 style="margin: 0; color: #1f2937;">New Sign-Up SHeets!</h1>
+                <h1 style="margin: 0; color: #1f2937;">New Sign-Up Sheets!</h1>
                 <p style="margin: 8px 0 0 0; color: #6b7280; font-size: 16px;">${tenant.name}</p>
               </div>
 
@@ -176,11 +270,12 @@ export async function POST(request: NextRequest) {
               <div style="margin-top: 32px; padding: 20px; background: #f9fafb; border-radius: 8px; font-size: 14px; color: #6b7280;">
                 <p style="margin: 0;"><strong>Questions?</strong> Reply to this email or contact your project coordinator.</p>
                 <p style="margin: 8px 0 0 0;">Thank you for volunteering with ${tenant.name}!</p>
+                <p style="margin: 12px 0 0 0; font-style: italic; font-size: 12px;">Sent to: ${targetingSummary}</p>
               </div>
 
             </body>
             </html>`,
-          text: `Hi ${member.first_name}! New Sign-Up Sheets from ${tenant.name}:\n\n${opportunities.map(opp => `${opp.title} - ${formatDateTime(opp)} - Sign up: ${process.env.NEXT_PUBLIC_SITE_URL}/signup/${memberTokens[opp.id]}`).join('\n\n')}`
+          text: `Hi ${member.first_name}! New Sign-Up Sheets from ${tenant.name}:\n\n${opportunities.map(opp => `${opp.title} - ${formatDateTime(opp)} - Sign up: ${process.env.NEXT_PUBLIC_SITE_URL}/signup/${memberTokens[opp.id]}`).join('\n\n')}\n\nSent to: ${targetingSummary}`
         })
 
         if (error) {
@@ -216,14 +311,18 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Record the broadcast
+    // Record the enhanced broadcast with project and targeting info
     const { error: broadcastError } = await supabase
       .from('email_broadcasts')
       .insert({
         tenant_id: tenantId,
         opportunity_ids: opportunityIds,
         sent_by: userId,
-        recipient_count: members.length
+        recipient_count: members.length,
+        broadcast_type: 'opportunities',
+        project_id: projectIds.length === 1 ? projectIds[0] : null, // Only set if single project
+        target_all_members: uniqueTargetingInfo.every(info => info.targeting === 'All Members'),
+        target_groups: projectIds.length === 1 ? opportunities[0].projects?.target_groups : null
       })
 
     if (broadcastError) {
@@ -236,13 +335,14 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: `Emails sent to ${successful} members${failed > 0 ? `, ${failed} failed` : ''}`,
+      message: `Opportunity emails sent to ${successful} targeted members${failed > 0 ? `, ${failed} failed` : ''}`,
       results: {
         total: members.length,
         successful,
         failed,
         opportunities: opportunities.length,
-        projects: Object.keys(projectGroups).length
+        projects: Object.keys(projectGroups).length,
+        targetingSummary
       }
     })
 

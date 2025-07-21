@@ -23,6 +23,9 @@ interface Project {
   created_at: string
   total_hours?: number
   opportunities?: OpportunityWithStats[]
+  target_all_members?: boolean
+  target_groups?: string[] | null
+  targeting_display?: string
 }
 
 interface ProjectResource {
@@ -160,7 +163,9 @@ export default function TenantDashboard() {
   const [newProject, setNewProject] = useState({
     name: '',
     description: '',
-    goals: ''
+    goals: '',
+    target_groups: [] as string[],
+    target_all_members: true
   })
 
   const [polls, setPolls] = useState<Poll[]>([])
@@ -168,6 +173,16 @@ export default function TenantDashboard() {
   const [viewingPoll, setViewingPoll] = useState<Poll | null>(null)
   const [pollResponses, setPollResponses] = useState<PollResponse[]>([])
   const [editingResponse, setEditingResponse] = useState<PollResponse | null>(null)
+
+  // Add state for edit project form
+  const [editProjectForm, setEditProjectForm] = useState({
+    name: '',
+    description: '',
+    goals: '',
+    status: 'active' as 'active' | 'closed' | 'on_hold',
+    target_groups: [] as string[],
+    target_all_members: true
+  })
 
   // Add these new state variables for member elevation
   const [elevatingMember, setElevatingMember] = useState<Member | null>(null)
@@ -702,8 +717,8 @@ export default function TenantDashboard() {
   const loadProjects = async (tenantId: string) => {
     try {
       const { data: projects, error: projectError } = await supabase
-        .from('projects')
-        .select('*')
+        .from('project_target_info')
+        .select('id, name, description, status, goals, created_at, target_all_members, target_groups, targeting_display')
         .eq('tenant_id', tenantId)
         .eq('status', 'active')
         .order('created_at', { ascending: false })
@@ -776,8 +791,11 @@ export default function TenantDashboard() {
             goals: project.goals,
             created_at: project.created_at,
             total_hours,
-            opportunities: opportunitiesWithStats
-          } as Project
+            opportunities: opportunitiesWithStats,
+            target_all_members: project.target_all_members,
+            target_groups: project.target_groups,
+            targeting_display: project.targeting_display
+          } as Project & { target_all_members: boolean; target_groups: string[] | null; targeting_display: string }
         })
       )
 
@@ -819,14 +837,22 @@ export default function TenantDashboard() {
             name: newProject.name,
             description: newProject.description,
             goals: newProject.goals || null,
-            status: 'active'
+            status: 'active',
+            target_groups: newProject.target_groups.length > 0 ? newProject.target_groups : null,
+            target_all_members: newProject.target_all_members
           }
         ])
 
       if (error) throw error
 
       setMessage(`Project "${newProject.name}" created successfully!`)
-      setNewProject({ name: '', description: '', goals: '' })
+      setNewProject({ 
+        name: '', 
+        description: '', 
+        goals: '',
+        target_groups: [],
+        target_all_members: true
+      })
       setShowProjectForm(false)
       loadProjects(tenantInfo.id)
     } catch (error) {
@@ -849,7 +875,9 @@ export default function TenantDashboard() {
           name: updatedData.name,
           description: updatedData.description,
           goals: updatedData.goals || null,
-          status: updatedData.status
+          status: updatedData.status,
+          target_groups: updatedData.target_groups && updatedData.target_groups.length > 0 ? updatedData.target_groups : null,
+          target_all_members: updatedData.target_all_members
         })
         .eq('id', editingProject.id)
 
@@ -1380,7 +1408,7 @@ const resendSetupEmail = async (memberEmail: string) => {
               </div>
 
               {showProjectForm && (
-                <div className="p-4 border-b bg-gray-50 flex-shrink-0">
+                <div className="p-4 border-b bg-gray-50 flex-shrink-0 max-h-96 overflow-y-auto">
                   <form onSubmit={createProject} className="space-y-3">
                     <div>
                       <input
@@ -1401,6 +1429,69 @@ const resendSetupEmail = async (memberEmail: string) => {
                         rows={2}
                         className="w-full px-3 py-2 text-sm rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                       />
+                    </div>
+
+                    <div>
+                      <textarea
+                        placeholder="Goals & Objectives"
+                        value={newProject.goals}
+                        onChange={(e) => setNewProject({ ...newProject, goals: e.target.value })}
+                        rows={2}
+                        className="w-full px-3 py-2 text-sm rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    {/* Group Targeting Section */}
+                    <div className="border-t pt-3">
+                      <label className="block text-xs font-medium text-gray-700 mb-2">Target Audience</label>
+                      
+                      <div className="space-y-2">
+                        <label className="flex items-center">
+                          <input
+                            type="radio"
+                            checked={newProject.target_all_members}
+                            onChange={() => setNewProject({ ...newProject, target_all_members: true, target_groups: [] })}
+                            className="mr-2"
+                          />
+                          <span className="text-sm">All Members ({members.length})</span>
+                        </label>
+                        
+                        <label className="flex items-center">
+                          <input
+                            type="radio"
+                            checked={!newProject.target_all_members}
+                            onChange={() => setNewProject({ ...newProject, target_all_members: false })}
+                            className="mr-2"
+                          />
+                          <span className="text-sm">Selected Groups</span>
+                        </label>
+                      </div>
+
+                      {!newProject.target_all_members && (
+                        <div className="mt-2 max-h-24 overflow-y-auto border rounded p-2">
+                          {groups.length === 0 ? (
+                            <p className="text-xs text-gray-500">No groups available</p>
+                          ) : (
+                            groups.map(group => (
+                              <label key={group.id} className="flex items-center mb-1">
+                                <input
+                                  type="checkbox"
+                                  checked={newProject.target_groups.includes(group.id)}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setNewProject({ ...newProject, target_groups: [...newProject.target_groups, group.id] })
+                                    } else {
+                                      setNewProject({ ...newProject, target_groups: newProject.target_groups.filter(id => id !== group.id) })
+                                    }
+                                  }}
+                                  className="mr-2"
+                                />
+                                <span className="text-xs">{group.name} ({group.member_count})</span>
+                              </label>
+                            ))
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     <button
@@ -1438,6 +1529,11 @@ const resendSetupEmail = async (memberEmail: string) => {
                         {project.description && (
                           <p className="text-gray-600 mb-2 text-xs">{project.description}</p>
                         )}
+
+                        {/* Project targeting display */}
+                        <div className="mb-2 text-xs text-gray-500">
+                          👥 {project.targeting_display || 'All Members'}
+                        </div>
                         
                         {project.opportunities && project.opportunities.length > 0 ? (
                           <div className="mb-3">
@@ -1494,7 +1590,17 @@ const resendSetupEmail = async (memberEmail: string) => {
 
                         <div className="flex justify-end">
                           <button
-                            onClick={() => setEditingProject(project)}
+                            onClick={() => {
+                              setEditingProject(project)
+                              setEditProjectForm({
+                                name: project.name,
+                                description: project.description,
+                                goals: project.goals || '',
+                                status: project.status,
+                                target_groups: project.target_groups || [],
+                                target_all_members: project.target_all_members !== false
+                              })
+                            }}
                             className="text-green-600 hover:text-green-800 font-medium cursor-pointer text-xs"
                           >
                             Edit
@@ -2656,21 +2762,15 @@ const resendSetupEmail = async (memberEmail: string) => {
                 
                 <form onSubmit={(e) => {
                   e.preventDefault()
-                  const formData = new FormData(e.target as HTMLFormElement)
-                  updateProject({
-                    name: formData.get('name'),
-                    description: formData.get('description'),
-                    goals: formData.get('goals'),
-                    status: formData.get('status')
-                  })
+                  updateProject(editProjectForm)
                 }} className="space-y-4">
                   
                   <div>
                     <label className="block text-sm font-medium text-gray-700">Project Name *</label>
                     <input
                       type="text"
-                      name="name"
-                      defaultValue={editingProject.name}
+                      value={editProjectForm.name}
+                      onChange={(e) => setEditProjectForm({ ...editProjectForm, name: e.target.value })}
                       className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                       required
                     />
@@ -2679,9 +2779,9 @@ const resendSetupEmail = async (memberEmail: string) => {
                   <div>
                     <label className="block text-sm font-medium text-gray-700">Description</label>
                     <textarea
-                      name="description"
                       rows={3}
-                      defaultValue={editingProject.description}
+                      value={editProjectForm.description}
+                      onChange={(e) => setEditProjectForm({ ...editProjectForm, description: e.target.value })}
                       className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                     />
                   </div>
@@ -2689,19 +2789,78 @@ const resendSetupEmail = async (memberEmail: string) => {
                   <div>
                     <label className="block text-sm font-medium text-gray-700">Goals & Objectives</label>
                     <textarea
-                      name="goals"
                       rows={3}
-                      defaultValue={editingProject.goals || ''}
+                      value={editProjectForm.goals}
+                      onChange={(e) => setEditProjectForm({ ...editProjectForm, goals: e.target.value })}
                       className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                       placeholder="What are the main goals and expected outcomes?"
                     />
+                  </div>
+
+                  {/* Group Targeting Section */}
+                  <div className="border-t pt-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-3">Target Audience</label>
+                    
+                    <div className="space-y-2">
+                      <label className="flex items-center">
+                        <input
+                          type="radio"
+                          checked={editProjectForm.target_all_members}
+                          onChange={() => setEditProjectForm({ ...editProjectForm, target_all_members: true, target_groups: [] })}
+                          className="mr-2"
+                        />
+                        <span className="text-sm">All Members ({members.length})</span>
+                      </label>
+                      
+                      <label className="flex items-center">
+                        <input
+                          type="radio"
+                          checked={!editProjectForm.target_all_members}
+                          onChange={() => setEditProjectForm({ ...editProjectForm, target_all_members: false })}
+                          className="mr-2"
+                        />
+                        <span className="text-sm">Selected Groups</span>
+                      </label>
+                    </div>
+
+                    {!editProjectForm.target_all_members && (
+                      <div className="mt-3 max-h-32 overflow-y-auto border rounded p-3">
+                        {groups.length === 0 ? (
+                          <p className="text-sm text-gray-500">No groups available</p>
+                        ) : (
+                          groups.map(group => (
+                            <label key={group.id} className="flex items-center mb-2">
+                              <input
+                                type="checkbox"
+                                checked={editProjectForm.target_groups.includes(group.id)}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setEditProjectForm({ 
+                                      ...editProjectForm, 
+                                      target_groups: [...editProjectForm.target_groups, group.id] 
+                                    })
+                                  } else {
+                                    setEditProjectForm({ 
+                                      ...editProjectForm, 
+                                      target_groups: editProjectForm.target_groups.filter(id => id !== group.id) 
+                                    })
+                                  }
+                                }}
+                                className="mr-2"
+                              />
+                              <span className="text-sm">{group.name} ({group.member_count})</span>
+                            </label>
+                          ))
+                        )}
+                      </div>
+                    )}
                   </div>
                   
                   <div>
                     <label className="block text-sm font-medium text-gray-700">Status</label>
                     <select
-                      name="status"
-                      defaultValue={editingProject.status}
+                      value={editProjectForm.status}
+                      onChange={(e) => setEditProjectForm({ ...editProjectForm, status: e.target.value as 'active' | 'closed' | 'on_hold' })}
                       className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                     >
                       <option value="active">Active</option>
