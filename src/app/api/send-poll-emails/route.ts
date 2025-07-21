@@ -1,3 +1,6 @@
+// File: src/app/api/send-poll-emails/route.ts
+// Version: 2.0 - Added group targeting support and email footer information
+
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { Resend } from 'resend'
@@ -19,7 +22,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
     }
 
-    // Get poll details
+    // Get poll details with targeting information
     const { data: poll, error: pollError } = await supabase
       .from('polls')
       .select('*')
@@ -42,29 +45,83 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Tenant not found' }, { status: 404 })
     }
 
-    // Get all members (no role filtering for polls)
+    // Determine target members based on poll targeting settings
+    let targetMemberEmails: string[] = []
+    let targetingInfo = ''
+
+    if (poll.target_all_members) {
+      // Get all members
+      const { data: allMembers, error: allMembersError } = await supabase
+        .from('user_profiles')
+        .select('email')
+        .eq('tenant_id', tenantId)
+
+      if (allMembersError) {
+        return NextResponse.json({ error: 'Failed to fetch members' }, { status: 500 })
+      }
+
+      targetMemberEmails = allMembers?.map(m => m.email) || []
+      targetingInfo = 'All Members'
+      
+    } else if (poll.target_groups && poll.target_groups.length > 0) {
+      // Get members from selected groups (with deduplication)
+      const { data: groupMemberEmails, error: groupError } = await supabase
+        .rpc('get_group_member_emails', {
+          group_ids: poll.target_groups,
+          tenant_id_param: tenantId
+        })
+
+      if (groupError) {
+        return NextResponse.json({ error: 'Failed to fetch group members' }, { status: 500 })
+      }
+
+      targetMemberEmails = groupMemberEmails || []
+
+      // Get group names for footer display
+      const { data: groups, error: groupNamesError } = await supabase
+        .from('groups')
+        .select('name')
+        .eq('tenant_id', tenantId)
+        .in('id', poll.target_groups)
+
+      if (groupNamesError) {
+        console.warn('Failed to fetch group names:', groupNamesError)
+        targetingInfo = 'Selected Groups'
+      } else {
+        const groupNames = groups?.map(g => g.name).join(', ') || 'Selected Groups'
+        targetingInfo = `Groups: ${groupNames}`
+      }
+      
+    } else {
+      return NextResponse.json({ error: 'No target audience specified' }, { status: 400 })
+    }
+
+    if (targetMemberEmails.length === 0) {
+      return NextResponse.json({ error: 'No target members found' }, { status: 404 })
+    }
+
+    // Get full member details for the target emails
     const { data: members, error: membersError } = await supabase
       .from('user_profiles')
       .select('email, first_name, last_name')
       .eq('tenant_id', tenantId)
-      // Removed role filter - polls go to everyone
+      .in('email', targetMemberEmails)
 
     if (membersError) {
-      return NextResponse.json({ error: 'Failed to fetch members' }, { status: 500 })
+      return NextResponse.json({ error: 'Failed to fetch member details' }, { status: 500 })
     }
 
     if (!members || members.length === 0) {
       return NextResponse.json({ error: 'No members found' }, { status: 404 })
     }
 
-    console.log(`Sending poll to ${members.length} members...`)
+    console.log(`Sending poll to ${members.length} members (${targetingInfo})...`)
 
     let successful = 0
     let failed = 0
     const failedEmails = []
 
-    // Send emails to all members with rate limiting
-    // Send emails to all members with rate limiting
+    // Send emails to target members with rate limiting
     for (const member of members) {
       try {
         const voteToken = crypto.randomUUID()
@@ -99,7 +156,7 @@ export async function POST(request: NextRequest) {
           voteButtons += '</div>'
         }
 
-       // Update existing poll response record with vote token
+        // Update existing poll response record with vote token
         const { error: insertError } = await supabase
           .from('poll_responses')
           .update({ response_token: voteToken })
@@ -113,7 +170,7 @@ export async function POST(request: NextRequest) {
           continue
         }
 
-        // Send email
+        // Send email with enhanced footer including targeting information
         const emailResult = await resend.emails.send({
           from: process.env.FROM_EMAIL || 'polls@voluntold.net',
           to: member.email,
@@ -143,6 +200,7 @@ export async function POST(request: NextRequest) {
               
               <div style="text-align: center; margin-top: 20px; color: #94a3b8; font-size: 12px;">
                 <p>This email was sent by ${tenant.name} via Voluntold.</p>
+                <p style="margin-top: 8px; font-style: italic;">Sent to: ${targetingInfo}</p>
               </div>
             </div>
           `
@@ -166,9 +224,9 @@ export async function POST(request: NextRequest) {
           await delay(1100)
         }
       }
-    } // End of for loop - MOVE THE CODE BELOW OUTSIDE THE LOOP
+    }
 
-    // Update the poll's last_emailed_at timestamp (OUTSIDE the loop)
+    // Update the poll's last_emailed_at timestamp
     const { error: updateError } = await supabase
       .from('polls')
       .update({ last_emailed_at: new Date().toISOString() })
@@ -178,12 +236,13 @@ export async function POST(request: NextRequest) {
       console.warn('Failed to update last_emailed_at:', updateError)
     }
 
-    // Return statement (OUTSIDE the loop)
+    // Return success response with targeting information
     return NextResponse.json({
-      message: `Poll emails sent! ${successful} successful, ${failed} failed.`,
+      message: `Poll emails sent to ${targetingInfo}! ${successful} successful, ${failed} failed.`,
       sent: successful,
       failed: failed,
-      failedEmails: failedEmails
+      failedEmails: failedEmails,
+      targetingInfo: targetingInfo
     })
 
   } catch (error) {

@@ -1,5 +1,5 @@
 // File: src/app/tenant/page.tsx
-// Version: 3.0 - Added manual signup management functionality
+// Version: 4.0 - Added groups functionality with member targeting
 
 'use client'
 import Header from '../../components/Header'
@@ -91,6 +91,8 @@ interface Poll {
   created_at: string
   expires_at: string | null
   last_emailed_at: string | null
+  target_groups: string[] | null
+  target_all_members: boolean
 }
 
 interface PollResponse {
@@ -102,6 +104,22 @@ interface PollResponse {
   responded_at: string
   updated_by: string | null
   updated_at: string | null
+}
+
+interface Group {
+  id: string
+  name: string
+  member_count: number
+  created_at: string
+  updated_at: string
+}
+
+interface GroupMembership {
+  id: string
+  group_id: string
+  group_name: string
+  member_email: string
+  added_at: string
 }
 
 export default function TenantDashboard() {
@@ -130,6 +148,15 @@ export default function TenantDashboard() {
   const [selectedMember, setSelectedMember] = useState<Member | null>(null)
   const [signupToDelete, setSignupToDelete] = useState<Signup | null>(null)
 
+  // Groups state
+  const [groups, setGroups] = useState<Group[]>([])
+  const [showGroupForm, setShowGroupForm] = useState(false)
+  const [editingGroup, setEditingGroup] = useState<Group | null>(null)
+  const [deletingGroup, setDeletingGroup] = useState<Group | null>(null)
+  const [managingGroupMembers, setManagingGroupMembers] = useState<Group | null>(null)
+  const [groupMemberships, setGroupMemberships] = useState<GroupMembership[]>([])
+  const [newGroupName, setNewGroupName] = useState('')
+
   const [newProject, setNewProject] = useState({
     name: '',
     description: '',
@@ -155,7 +182,9 @@ export default function TenantDashboard() {
     poll_type: 'yes_no' as 'yes_no' | 'multiple_choice',
     options: [''],
     is_anonymous: false,
-    expires_at: ''
+    expires_at: '',
+    target_groups: [] as string[],
+    target_all_members: true
   })
 
   const [newMember, setNewMember] = useState({
@@ -187,6 +216,174 @@ export default function TenantDashboard() {
       setFilteredMembers(filtered)
     }
   }, [members, memberSearch])
+
+  // Groups functions
+  const loadGroups = async (tenantId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('group_member_counts')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .order('name', { ascending: true })
+
+      if (error) throw error
+      setGroups(data || [])
+    } catch (error) {
+      setMessage(`Error loading groups: ${(error as Error).message}`)
+    }
+  }
+
+  const createGroup = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!tenantInfo) return
+
+    setLoading(true)
+    setMessage('')
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.user) throw new Error('Not authenticated')
+
+      const { error } = await supabase
+        .from('groups')
+        .insert([
+          {
+            tenant_id: tenantInfo.id,
+            name: newGroupName,
+            created_by: session.user.id
+          }
+        ])
+
+      if (error) throw error
+
+      setMessage(`Group "${newGroupName}" created successfully!`)
+      setNewGroupName('')
+      setShowGroupForm(false)
+      loadGroups(tenantInfo.id)
+    } catch (error) {
+      setMessage(`Error: ${(error as Error).message}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const updateGroup = async (updatedName: string) => {
+    if (!editingGroup || !tenantInfo) return
+
+    setLoading(true)
+    setMessage('')
+
+    try {
+      const { error } = await supabase
+        .from('groups')
+        .update({ name: updatedName })
+        .eq('id', editingGroup.id)
+
+      if (error) throw error
+
+      setMessage(`Group renamed to "${updatedName}" successfully!`)
+      setEditingGroup(null)
+      loadGroups(tenantInfo.id)
+    } catch (error) {
+      setMessage(`Error: ${(error as Error).message}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const deleteGroup = async () => {
+    if (!deletingGroup || !tenantInfo) return
+
+    setLoading(true)
+    setMessage('')
+
+    try {
+      const { error } = await supabase
+        .from('groups')
+        .delete()
+        .eq('id', deletingGroup.id)
+
+      if (error) throw error
+
+      setMessage(`Group "${deletingGroup.name}" deleted successfully!`)
+      setDeletingGroup(null)
+      loadGroups(tenantInfo.id)
+    } catch (error) {
+      setMessage(`Error: ${(error as Error).message}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadGroupMemberships = async (groupId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('member_group_view')
+        .select('*')
+        .eq('group_id', groupId)
+        .order('member_email', { ascending: true })
+
+      if (error) throw error
+      setGroupMemberships(data || [])
+    } catch (error) {
+      setMessage(`Error loading group members: ${(error as Error).message}`)
+    }
+  }
+
+  const addMemberToGroup = async (groupId: string, memberEmail: string) => {
+    if (!tenantInfo) return
+
+    setLoading(true)
+    setMessage('')
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.user) throw new Error('Not authenticated')
+
+      const { error } = await supabase
+        .from('group_memberships')
+        .insert([
+          {
+            group_id: groupId,
+            tenant_id: tenantInfo.id,
+            member_email: memberEmail,
+            added_by: session.user.id
+          }
+        ])
+
+      if (error) throw error
+
+      setMessage('Member added to group successfully!')
+      loadGroupMemberships(groupId)
+      loadGroups(tenantInfo.id) // Refresh counts
+    } catch (error) {
+      setMessage(`Error: ${(error as Error).message}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const removeMemberFromGroup = async (membershipId: string, groupId: string) => {
+    setLoading(true)
+    setMessage('')
+
+    try {
+      const { error } = await supabase
+        .from('group_memberships')
+        .delete()
+        .eq('id', membershipId)
+
+      if (error) throw error
+
+      setMessage('Member removed from group successfully!')
+      loadGroupMemberships(groupId)
+      loadGroups(tenantInfo!.id) // Refresh counts
+    } catch (error) {
+      setMessage(`Error: ${(error as Error).message}`)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   // Load signups for a specific opportunity
   const loadOpportunitySignups = async (opportunityId: string) => {
@@ -493,6 +690,7 @@ export default function TenantDashboard() {
       await loadProjects(tenant.id)
       await loadMembers(tenant.id)
       await loadPolls(tenant.id)
+      await loadGroups(tenant.id)
 
     } catch (error) {
       setMessage(`Error: ${(error as Error).message}`)
@@ -935,7 +1133,9 @@ const resendSetupEmail = async (memberEmail: string) => {
             is_anonymous: newPoll.is_anonymous,
             expires_at: newPoll.expires_at || null,
             created_by: session.user.id,
-            status: 'active'
+            status: 'active',
+            target_groups: newPoll.target_groups.length > 0 ? newPoll.target_groups : null,
+            target_all_members: newPoll.target_all_members
           }
         ])
         .select()
@@ -943,15 +1143,41 @@ const resendSetupEmail = async (memberEmail: string) => {
 
       if (pollError) throw pollError
 
-      const { data: members, error: membersError } = await supabase
-        .from('user_profiles')
-        .select('email, first_name, last_name')
-        .eq('tenant_id', tenantInfo.id)
+      // Get target member emails based on group selection
+      let targetEmails: string[] = []
+      
+      if (newPoll.target_all_members) {
+        // Get all members
+        const { data: allMembers, error: membersError } = await supabase
+          .from('user_profiles')
+          .select('email, first_name, last_name')
+          .eq('tenant_id', tenantInfo.id)
 
-      if (membersError) throw membersError
+        if (membersError) throw membersError
+        targetEmails = allMembers?.map(m => m.email) || []
+      } else if (newPoll.target_groups.length > 0) {
+        // Get members from selected groups (with deduplication)
+        const { data: groupMemberEmails, error: groupError } = await supabase
+          .rpc('get_group_member_emails', {
+            group_ids: newPoll.target_groups,
+            tenant_id_param: tenantInfo.id
+          })
 
-      if (members && members.length > 0) {
-        const pollResponses = members.map(member => ({
+        if (groupError) throw groupError
+        targetEmails = groupMemberEmails || []
+      }
+
+      // Create poll response records for target members
+      if (targetEmails.length > 0) {
+        const { data: targetMembers, error: targetMembersError } = await supabase
+          .from('user_profiles')
+          .select('email, first_name, last_name')
+          .eq('tenant_id', tenantInfo.id)
+          .in('email', targetEmails)
+
+        if (targetMembersError) throw targetMembersError
+
+        const pollResponses = targetMembers?.map(member => ({
           poll_id: poll.id,
           tenant_id: tenantInfo.id,
           member_email: member.email,
@@ -959,7 +1185,7 @@ const resendSetupEmail = async (memberEmail: string) => {
           response: '',
           response_token: crypto.randomUUID(),
           responded_at: null
-        }))
+        })) || []
 
         const { error: responsesError } = await supabase
           .from('poll_responses')
@@ -968,14 +1194,16 @@ const resendSetupEmail = async (memberEmail: string) => {
         if (responsesError) throw responsesError
       }
 
-      setMessage(`Poll "${newPoll.title}" created successfully with ${members?.length || 0} member records!`)
+      setMessage(`Poll "${newPoll.title}" created successfully with ${targetEmails.length} member records!`)
       setNewPoll({
         title: '',
         question: '',
         poll_type: 'yes_no',
         options: [''],
         is_anonymous: false,
-        expires_at: ''
+        expires_at: '',
+        target_groups: [],
+        target_all_members: true
       })
       setShowPollForm(false)
       loadPolls(tenantInfo.id)
@@ -1087,6 +1315,12 @@ const resendSetupEmail = async (memberEmail: string) => {
     }
   }
 
+  // Helper function to get group names for display
+  const getGroupNames = (groupIds: string[] | null) => {
+    if (!groupIds || groupIds.length === 0) return []
+    return groups.filter(g => groupIds.includes(g.id)).map(g => g.name)
+  }
+
   useEffect(() => {
     loadTenantData()
   }, [loadTenantData])
@@ -1128,8 +1362,8 @@ const resendSetupEmail = async (memberEmail: string) => {
             </div>
           )}
 
-          {/* 3-Panel Grid Layout */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* 4-Panel Grid Layout */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-6">
             
             {/* Projects Panel */}
             <div className="bg-white rounded-lg shadow flex flex-col h-[calc(100vh-300px)]">
@@ -1140,76 +1374,56 @@ const resendSetupEmail = async (memberEmail: string) => {
                     onClick={() => setShowProjectForm(!showProjectForm)}
                     className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
                   >
-                    {showProjectForm ? 'Hide Form' : 'Create Project'}
+                    {showProjectForm ? 'Hide' : 'Create'}
                   </button>
                 </div>
               </div>
 
               {showProjectForm && (
-                <div className="p-6 border-b bg-gray-50 flex-shrink-0">
-                  <form onSubmit={createProject} className="space-y-4">
+                <div className="p-4 border-b bg-gray-50 flex-shrink-0">
+                  <form onSubmit={createProject} className="space-y-3">
                     <div>
-                      <label htmlFor="projectName" className="block text-sm font-medium text-gray-700">
-                        Project Name
-                      </label>
                       <input
                         type="text"
-                        id="projectName"
+                        placeholder="Project Name"
                         value={newProject.name}
                         onChange={(e) => setNewProject({ ...newProject, name: e.target.value })}
-                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                        className="w-full px-3 py-2 text-sm rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                         required
                       />
                     </div>
 
                     <div>
-                      <label htmlFor="projectDescription" className="block text-sm font-medium text-gray-700">
-                        Description
-                      </label>
                       <textarea
-                        id="projectDescription"
+                        placeholder="Description"
                         value={newProject.description}
                         onChange={(e) => setNewProject({ ...newProject, description: e.target.value })}
-                        rows={3}
-                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label htmlFor="projectGoals" className="block text-sm font-medium text-gray-700">
-                        Goals & Objectives
-                      </label>
-                      <textarea
-                        id="projectGoals"
-                        value={newProject.goals}
-                        onChange={(e) => setNewProject({ ...newProject, goals: e.target.value })}
-                        rows={3}
-                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                        placeholder="What are the main goals and expected outcomes for this project?"
+                        rows={2}
+                        className="w-full px-3 py-2 text-sm rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                       />
                     </div>
 
                     <button
                       type="submit"
                       disabled={loading}
-                      className="bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 disabled:opacity-50"
+                      className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 disabled:opacity-50 text-sm"
                     >
-                      {loading ? 'Creating...' : 'Create Project'}
+                      {loading ? 'Creating...' : 'Create'}
                     </button>
                   </form>
                 </div>
               )}
 
-              <div className="p-6 flex-1 overflow-hidden">
+              <div className="p-4 flex-1 overflow-hidden">
                 {projects.length === 0 ? (
-                  <p className="text-gray-500 text-center py-8">No projects yet. Create your first project to get started!</p>
+                  <p className="text-gray-500 text-center py-8 text-sm">No projects yet.</p>
                 ) : (
-                  <div className="h-full overflow-y-auto space-y-4 pr-2">
+                  <div className="h-full overflow-y-auto space-y-3 pr-2">
                     {projects.map((project) => (
-                      <div key={project.id} className="border rounded-lg p-4 hover:shadow-sm transition-shadow relative">
+                      <div key={project.id} className="border rounded-lg p-3 hover:shadow-sm transition-shadow relative">
                         <button
                           onClick={() => setProjectToClose(project)}
-                          className="absolute top-2 right-2 text-gray-400 hover:text-red-500 text-lg font-bold w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-100"
+                          className="absolute top-2 right-2 text-gray-400 hover:text-red-500 text-lg font-bold w-5 h-5 flex items-center justify-center rounded-full hover:bg-gray-100"
                           title="Close project"
                         >
                           ×
@@ -1217,20 +1431,20 @@ const resendSetupEmail = async (memberEmail: string) => {
                         
                         <button
                             onClick={() => router.push(`/tenant/projects/${project.id}`)}
-                            className="font-semibold text-lg mb-2 pr-8 text-blue-600 hover:text-blue-800 hover:underline cursor-pointer text-left"
+                            className="font-semibold text-sm mb-2 pr-6 text-blue-600 hover:text-blue-800 hover:underline cursor-pointer text-left block"
                           >
                             {project.name}
                           </button>
                         {project.description && (
-                          <p className="text-gray-600 mb-3">{project.description}</p>
+                          <p className="text-gray-600 mb-2 text-xs">{project.description}</p>
                         )}
                         
                         {project.opportunities && project.opportunities.length > 0 ? (
-                          <div className="mb-4">
-                            <h4 className="text-sm font-medium text-gray-700 mb-2">Sign-Up Sheets:</h4>
-                            <div className="space-y-2">
-                              {project.opportunities.map((opportunity) => (
-                                <div key={opportunity.id} className="bg-gray-50 rounded p-3">
+                          <div className="mb-3">
+                            <h4 className="text-xs font-medium text-gray-700 mb-1">Sign-Up Sheets:</h4>
+                            <div className="space-y-1">
+                              {project.opportunities.slice(0, 2).map((opportunity) => (
+                                <div key={opportunity.id} className="bg-gray-50 rounded p-2">
                                   <div className="flex justify-between items-start">
                                     <div className="flex-1">
                                       <button
@@ -1238,59 +1452,50 @@ const resendSetupEmail = async (memberEmail: string) => {
                                           setManagingOpportunity(opportunity)
                                           loadOpportunitySignups(opportunity.id)
                                         }}
-                                        className="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline cursor-pointer text-left"
+                                        className="text-xs font-medium text-blue-600 hover:text-blue-800 hover:underline cursor-pointer text-left"
                                       >
                                         {opportunity.title}
                                       </button>
                                       {opportunity.date_scheduled && (
                                         <div className="text-xs text-gray-500 mt-1">
                                           {new Date(opportunity.date_scheduled).toLocaleDateString()}
-                                          {opportunity.time_start && ` at ${opportunity.time_start}`}
                                         </div>
                                       )}
                                     </div>
-                                    <div className="text-right ml-3">
-                                      <div className="text-sm">
+                                    <div className="text-right ml-2">
+                                      <div className="text-xs">
                                         <span className="text-green-600 font-medium">{opportunity.filled_count}</span>
-                                        <span className="text-gray-500"> / </span>
+                                        <span className="text-gray-500">/</span>
                                         <span className="text-gray-900">{opportunity.volunteers_needed}</span>
-                                        <span className="text-gray-500 text-xs ml-1">filled</span>
                                       </div>
-                                      {opportunity.open_positions > 0 ? (
-                                        <div className="text-xs text-orange-600">
-                                          {opportunity.open_positions} positions open
-                                        </div>
-                                      ) : (
-                                        <div className="text-xs text-green-600">Fully staffed</div>
-                                      )}
                                     </div>
                                   </div>
                                 </div>
                               ))}
+                              {project.opportunities.length > 2 && (
+                                <div className="text-xs text-gray-500 text-center">
+                                  +{project.opportunities.length - 2} more
+                                </div>
+                              )}
                             </div>
                           </div>
                         ) : (
-                          <div className="mb-4 text-sm text-gray-500">No Sign-up Sheets created yet</div>
+                          <div className="mb-3 text-xs text-gray-500">No Sign-up Sheets</div>
                         )}
 
-                        <div className="mb-4 p-3 bg-blue-50 rounded-lg">
+                        <div className="mb-3 p-2 bg-blue-50 rounded-lg">
                           <div className="flex justify-between items-center">
-                            <span className="text-sm font-medium text-blue-900">Total Volunteer Hours</span>
-                            <span className="text-lg font-bold text-blue-900">
-                              {project.total_hours?.toFixed(1) || '0.0'} hrs
+                            <span className="text-xs font-medium text-blue-900">Total Hours</span>
+                            <span className="text-sm font-bold text-blue-900">
+                              {project.total_hours?.toFixed(1) || '0.0'}
                             </span>
                           </div>
-                          {project.total_hours && project.total_hours > 0 && (
-                            <div className="text-xs text-blue-700 mt-1">
-                              From {project.opportunities?.length || 0} opportunities + additional hours
-                            </div>
-                          )}
                         </div>
 
-                        <div className="flex justify-end gap-2">
+                        <div className="flex justify-end">
                           <button
                             onClick={() => setEditingProject(project)}
-                            className="text-green-600 hover:text-green-800 font-medium cursor-pointer text-sm"
+                            className="text-green-600 hover:text-green-800 font-medium cursor-pointer text-xs"
                           >
                             Edit
                           </button>
@@ -1302,66 +1507,61 @@ const resendSetupEmail = async (memberEmail: string) => {
               </div>
             </div>
 
-            {/* Polls Panel - keeping existing functionality */}
+            {/* Polls Panel - Enhanced with Group Targeting */}
             <div className="bg-white rounded-lg shadow flex flex-col h-[calc(100vh-300px)]">
               <div className="px-6 py-4 border-b flex-shrink-0">
                 <div className="flex justify-between items-center">
-                  <h2 className="text-xl font-semibold">Active Polls ({polls.length})</h2>
+                  <h2 className="text-xl font-semibold">Polls ({polls.length})</h2>
                   <button
                     onClick={() => setShowPollForm(!showPollForm)}
                     className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
                   >
-                    {showPollForm ? 'Hide Form' : 'Create Poll'}
+                    {showPollForm ? 'Hide' : 'Create'}
                   </button>
                 </div>
               </div>
 
               {showPollForm && (
-                <div className="p-6 border-b bg-gray-50 flex-shrink-0">
-                  <form onSubmit={createPoll} className="space-y-4">
-                    <div className="grid grid-cols-1 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Poll Title</label>
-                        <input
-                          type="text"
-                          value={newPoll.title}
-                          onChange={(e) => setNewPoll({ ...newPoll, title: e.target.value })}
-                          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                          placeholder="e.g., Annual Picnic Location"
-                          required
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Poll Type</label>
-                        <select
-                          value={newPoll.poll_type}
-                          onChange={(e) => setNewPoll({ ...newPoll, poll_type: e.target.value as 'yes_no' | 'multiple_choice' })}
-                          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                        >
-                          <option value="yes_no">Yes/No</option>
-                          <option value="multiple_choice">Multiple Choice</option>
-                        </select>
-                      </div>
-                    </div>
-
+                <div className="p-4 border-b bg-gray-50 flex-shrink-0 max-h-96 overflow-y-auto">
+                  <form onSubmit={createPoll} className="space-y-3">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700">Question</label>
-                      <textarea
-                        value={newPoll.question}
-                        onChange={(e) => setNewPoll({ ...newPoll, question: e.target.value })}
-                        rows={3}
-                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                        placeholder="What would you like to ask your members?"
+                      <input
+                        type="text"
+                        placeholder="Poll Title"
+                        value={newPoll.title}
+                        onChange={(e) => setNewPoll({ ...newPoll, title: e.target.value })}
+                        className="w-full px-3 py-2 text-sm rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                         required
                       />
                     </div>
 
+                    <div>
+                      <textarea
+                        placeholder="Question"
+                        value={newPoll.question}
+                        onChange={(e) => setNewPoll({ ...newPoll, question: e.target.value })}
+                        rows={2}
+                        className="w-full px-3 py-2 text-sm rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <select
+                        value={newPoll.poll_type}
+                        onChange={(e) => setNewPoll({ ...newPoll, poll_type: e.target.value as 'yes_no' | 'multiple_choice' })}
+                        className="w-full px-3 py-2 text-sm rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                      >
+                        <option value="yes_no">Yes/No</option>
+                        <option value="multiple_choice">Multiple Choice</option>
+                      </select>
+                    </div>
+
                     {newPoll.poll_type === 'multiple_choice' && (
                       <div>
-                        <label className="block text-sm font-medium text-gray-700">Options</label>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">Options</label>
                         {newPoll.options.map((option, index) => (
-                          <div key={index} className="flex gap-2 mt-2">
+                          <div key={index} className="flex gap-2 mb-1">
                             <input
                               type="text"
                               value={option}
@@ -1370,7 +1570,7 @@ const resendSetupEmail = async (memberEmail: string) => {
                                 newOptions[index] = e.target.value
                                 setNewPoll({ ...newPoll, options: newOptions })
                               }}
-                              className="flex-1 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                              className="flex-1 px-2 py-1 text-sm rounded border-gray-300 focus:border-blue-500 focus:ring-blue-500"
                               placeholder={`Option ${index + 1}`}
                             />
                             {index > 0 && (
@@ -1380,9 +1580,9 @@ const resendSetupEmail = async (memberEmail: string) => {
                                   const newOptions = newPoll.options.filter((_, i) => i !== index)
                                   setNewPoll({ ...newPoll, options: newOptions })
                                 }}
-                                className="text-red-600 hover:text-red-800"
+                                className="text-red-600 hover:text-red-800 text-xs"
                               >
-                                Remove
+                                ×
                               </button>
                             )}
                           </div>
@@ -1390,41 +1590,80 @@ const resendSetupEmail = async (memberEmail: string) => {
                         <button
                           type="button"
                           onClick={() => setNewPoll({ ...newPoll, options: [...newPoll.options, ''] })}
-                          className="mt-2 text-blue-600 hover:text-blue-800 text-sm"
+                          className="text-blue-600 hover:text-blue-800 text-xs"
                         >
                           + Add Option
                         </button>
                       </div>
                     )}
 
-                    <div className="grid grid-cols-1 gap-4">
-                      <div>
+                    {/* Group Targeting Section */}
+                    <div className="border-t pt-3">
+                      <label className="block text-xs font-medium text-gray-700 mb-2">Target Audience</label>
+                      
+                      <div className="space-y-2">
                         <label className="flex items-center">
                           <input
-                            type="checkbox"
-                            checked={newPoll.is_anonymous}
-                            onChange={(e) => setNewPoll({ ...newPoll, is_anonymous: e.target.checked })}
+                            type="radio"
+                            checked={newPoll.target_all_members}
+                            onChange={() => setNewPoll({ ...newPoll, target_all_members: true, target_groups: [] })}
                             className="mr-2"
                           />
-                          Anonymous responses
+                          <span className="text-sm">All Members ({members.length})</span>
+                        </label>
+                        
+                        <label className="flex items-center">
+                          <input
+                            type="radio"
+                            checked={!newPoll.target_all_members}
+                            onChange={() => setNewPoll({ ...newPoll, target_all_members: false })}
+                            className="mr-2"
+                          />
+                          <span className="text-sm">Selected Groups</span>
                         </label>
                       </div>
 
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Expires (Optional)</label>
-                        <input
-                          type="datetime-local"
-                          value={newPoll.expires_at}
-                          onChange={(e) => setNewPoll({ ...newPoll, expires_at: e.target.value })}
-                          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                        />
-                      </div>
+                      {!newPoll.target_all_members && (
+                        <div className="mt-2 max-h-32 overflow-y-auto border rounded p-2">
+                          {groups.length === 0 ? (
+                            <p className="text-xs text-gray-500">No groups available</p>
+                          ) : (
+                            groups.map(group => (
+                              <label key={group.id} className="flex items-center mb-1">
+                                <input
+                                  type="checkbox"
+                                  checked={newPoll.target_groups.includes(group.id)}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setNewPoll({ ...newPoll, target_groups: [...newPoll.target_groups, group.id] })
+                                    } else {
+                                      setNewPoll({ ...newPoll, target_groups: newPoll.target_groups.filter(id => id !== group.id) })
+                                    }
+                                  }}
+                                  className="mr-2"
+                                />
+                                <span className="text-xs">{group.name} ({group.member_count})</span>
+                              </label>
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={newPoll.is_anonymous}
+                        onChange={(e) => setNewPoll({ ...newPoll, is_anonymous: e.target.checked })}
+                        className="mr-2"
+                      />
+                      <span className="text-xs">Anonymous responses</span>
                     </div>
 
                     <button
                       type="submit"
                       disabled={loading}
-                      className="bg-blue-600 text-white py-2 px-6 rounded-md hover:bg-blue-700 disabled:opacity-50"
+                      className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 disabled:opacity-50 text-sm"
                     >
                       {loading ? 'Creating...' : 'Create Poll'}
                     </button>
@@ -1432,34 +1671,44 @@ const resendSetupEmail = async (memberEmail: string) => {
                 </div>
               )}
 
-              <div className="p-6 flex-1 overflow-hidden">
+              <div className="p-4 flex-1 overflow-hidden">
                 {polls.length === 0 ? (
-                  <p className="text-gray-500 text-center py-8">No polls yet. Create your first poll to get member feedback!</p>
+                  <p className="text-gray-500 text-center py-8 text-sm">No polls yet.</p>
                 ) : (
-                  <div className="h-full overflow-y-auto space-y-4 pr-2">
+                  <div className="h-full overflow-y-auto space-y-3 pr-2">
                     {polls.map((poll) => (
-                      <div key={poll.id} className="border rounded-lg p-4 hover:shadow-sm transition-shadow relative">
+                      <div key={poll.id} className="border rounded-lg p-3 hover:shadow-sm transition-shadow relative">
                         <button
                           onClick={() => setPollToClose(poll)}
-                          className="absolute top-2 right-2 text-gray-400 hover:text-red-500 text-lg font-bold w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-100"
+                          className="absolute top-2 right-2 text-gray-400 hover:text-red-500 text-lg font-bold w-5 h-5 flex items-center justify-center rounded-full hover:bg-gray-100"
                           title="Close poll"
                         >
                           ×
                         </button>
                         
-                        <div className="flex justify-between items-start mb-3">
-                          <div className="flex-1 pr-8">
+                        <div className="flex justify-between items-start mb-2">
+                          <div className="flex-1 pr-6">
                             <button
                               onClick={() => {
                                 setViewingPoll(poll)
                                 loadPollResponses(poll.id)
                               }}
-                              className="font-semibold text-lg text-blue-600 hover:text-blue-800 hover:underline cursor-pointer text-left"
+                              className="font-semibold text-sm text-blue-600 hover:text-blue-800 hover:underline cursor-pointer text-left"
                             >
                               {poll.title}
                             </button>
-                            <p className="text-gray-600 mt-1">{poll.question}</p>
-                            <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
+                            <p className="text-gray-600 mt-1 text-xs">{poll.question}</p>
+                            
+                            {/* Group targeting display */}
+                            <div className="mt-1 text-xs text-gray-500">
+                              {poll.target_all_members ? (
+                                <span>📧 All Members</span>
+                              ) : (
+                                <span>📧 Groups: {getGroupNames(poll.target_groups).join(', ') || 'None selected'}</span>
+                              )}
+                            </div>
+                            
+                            <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
                               <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
                                 poll.status === 'active' ? 'bg-green-100 text-green-800' :
                                 poll.status === 'closed' ? 'bg-gray-100 text-gray-800' :
@@ -1467,26 +1716,24 @@ const resendSetupEmail = async (memberEmail: string) => {
                               }`}>
                                 {poll.status}
                               </span>
-                              <span>{poll.poll_type === 'yes_no' ? 'Yes/No' : 'Multiple Choice'}</span>
-                              {poll.is_anonymous && <span>Anonymous</span>}
                               <span>{poll.total_responses} responses</span>
                             </div>
                           </div>
                         </div>
                         
-                        <div className="flex gap-2 mb-4">
+                        <div className="flex gap-2 mb-2">
                           <button
                             onClick={() => sendPollEmails(poll.id)}
-                            className="text-purple-600 hover:text-purple-800 font-medium cursor-pointer text-sm"
+                            className="text-purple-600 hover:text-purple-800 font-medium cursor-pointer text-xs"
                           >
-                            Email Members
+                            Email
                           </button>
                         </div>
                         
-                        <div className="pt-3 border-t border-gray-200 text-right">
+                        <div className="pt-2 border-t border-gray-200 text-right">
                           <span className="text-xs text-gray-500">
                             {poll.last_emailed_at 
-                              ? `Last emailed: ${new Date(poll.last_emailed_at).toLocaleDateString()}`
+                              ? `Last: ${new Date(poll.last_emailed_at).toLocaleDateString()}`
                               : 'Never emailed'
                             }
                           </span>
@@ -1498,7 +1745,93 @@ const resendSetupEmail = async (memberEmail: string) => {
               </div>
             </div>
 
-            {/* Members Panel - Enhanced with Search */}
+            {/* Groups Panel */}
+            <div className="bg-white rounded-lg shadow flex flex-col h-[calc(100vh-300px)]">
+              <div className="px-6 py-4 border-b flex-shrink-0">
+                <div className="flex justify-between items-center">
+                  <h2 className="text-xl font-semibold">Groups ({groups.length})</h2>
+                  <button
+                    onClick={() => setShowGroupForm(!showGroupForm)}
+                    className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
+                  >
+                    {showGroupForm ? 'Hide' : 'Create'}
+                  </button>
+                </div>
+              </div>
+
+              {showGroupForm && (
+                <div className="p-4 border-b bg-gray-50 flex-shrink-0">
+                  <form onSubmit={createGroup} className="space-y-3">
+                    <div>
+                      <input
+                        type="text"
+                        placeholder="Group Name"
+                        value={newGroupName}
+                        onChange={(e) => setNewGroupName(e.target.value)}
+                        className="w-full px-3 py-2 text-sm rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                        required
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 disabled:opacity-50 text-sm"
+                    >
+                      {loading ? 'Creating...' : 'Create Group'}
+                    </button>
+                  </form>
+                </div>
+              )}
+
+              <div className="p-4 flex-1 overflow-hidden">
+                {groups.length === 0 ? (
+                  <p className="text-gray-500 text-center py-8 text-sm">No groups yet.</p>
+                ) : (
+                  <div className="h-full overflow-y-auto space-y-3 pr-2">
+                    {groups.map((group) => (
+                      <div key={group.id} className="border rounded-lg p-3 hover:shadow-sm transition-shadow relative">
+                        <button
+                          onClick={() => setDeletingGroup(group)}
+                          className="absolute top-2 right-2 text-gray-400 hover:text-red-500 text-lg font-bold w-5 h-5 flex items-center justify-center rounded-full hover:bg-gray-100"
+                          title="Delete group"
+                        >
+                          ×
+                        </button>
+                        
+                        <div className="flex justify-between items-start mb-2">
+                          <div className="flex-1 pr-6">
+                            <button
+                              onClick={() => {
+                                setManagingGroupMembers(group)
+                                loadGroupMemberships(group.id)
+                              }}
+                              className="font-semibold text-sm text-blue-600 hover:text-blue-800 hover:underline cursor-pointer text-left"
+                            >
+                              {group.name}
+                            </button>
+                            <div className="text-xs text-gray-500 mt-1">
+                              {group.member_count} member{group.member_count !== 1 ? 's' : ''}
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div className="flex justify-end">
+                          <button
+                            onClick={() => setEditingGroup(group)}
+                            className="text-green-600 hover:text-green-800 font-medium cursor-pointer text-xs"
+                          >
+                            Rename
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Members Panel - Enhanced with Group Display */}
             <div className="bg-white rounded-lg shadow flex flex-col h-[calc(100vh-300px)]">
               <div className="px-6 py-4 border-b flex-shrink-0">
                 <div className="flex justify-between items-center mb-3">
@@ -1510,15 +1843,15 @@ const resendSetupEmail = async (memberEmail: string) => {
                     <div className="flex gap-2">
                       <button
                         onClick={() => setShowBulkAddModal(true)}
-                        className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
+                        className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer text-sm"
                       >
-                        Bulk Add
+                        Bulk
                       </button>
                       <button
                         onClick={() => setShowMemberForm(!showMemberForm)}
-                        className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
+                        className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer text-sm"
                       >
-                        {showMemberForm ? 'Hide Form' : 'Add Member'}
+                        {showMemberForm ? 'Hide' : 'Add'}
                       </button>
                     </div>
                   </div>
@@ -1538,98 +1871,52 @@ const resendSetupEmail = async (memberEmail: string) => {
               </div>
 
               {showMemberForm && (
-                <div className="p-6 border-b bg-gray-50 flex-shrink-0">
-                  <form onSubmit={addMember} className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-                          Email *
-                        </label>
-                        <input
-                          type="email"
-                          id="email"
-                          value={newMember.email}
-                          onChange={(e) => setNewMember({ ...newMember, email: e.target.value })}
-                          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                          required
-                        />
-                      </div>
+                <div className="p-4 border-b bg-gray-50 flex-shrink-0 max-h-72 overflow-y-auto">
+                  <form onSubmit={addMember} className="space-y-3">
+                    <div className="grid grid-cols-2 gap-2">
+                      <input
+                        type="text"
+                        placeholder="First Name"
+                        value={newMember.firstName}
+                        onChange={(e) => setNewMember({ ...newMember, firstName: e.target.value })}
+                        className="px-3 py-2 text-sm rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                        required
+                      />
+                      <input
+                        type="text"
+                        placeholder="Last Name"
+                        value={newMember.lastName}
+                        onChange={(e) => setNewMember({ ...newMember, lastName: e.target.value })}
+                        className="px-3 py-2 text-sm rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                        required
+                      />
+                    </div>
 
-                      <div>
-                        <label htmlFor="phoneNumber" className="block text-sm font-medium text-gray-700">
-                          Phone Number
-                        </label>
-                        <input
-                          type="tel"
-                          id="phoneNumber"
-                          value={newMember.phoneNumber}
-                          onChange={(e) => setNewMember({ ...newMember, phoneNumber: e.target.value })}
-                          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                          placeholder="(555) 123-4567"
-                        />
-                      </div>
+                    <div>
+                      <input
+                        type="email"
+                        placeholder="Email"
+                        value={newMember.email}
+                        onChange={(e) => setNewMember({ ...newMember, email: e.target.value })}
+                        className="w-full px-3 py-2 text-sm rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                        required
+                      />
+                    </div>
 
-                      <div>
-                        <label htmlFor="firstName" className="block text-sm font-medium text-gray-700">
-                          First Name *
-                        </label>
-                        <input
-                          type="text"
-                          id="firstName"
-                          value={newMember.firstName}
-                          onChange={(e) => setNewMember({ ...newMember, firstName: e.target.value })}
-                          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                          required
-                        />
-                      </div>
-
-                      <div>
-                        <label htmlFor="lastName" className="block text-sm font-medium text-gray-700">
-                          Last Name *
-                        </label>
-                        <input
-                          type="text"
-                          id="lastName"
-                          value={newMember.lastName}
-                          onChange={(e) => setNewMember({ ...newMember, lastName: e.target.value })}
-                          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                          required
-                        />
-                      </div>
-
-                      <div>
-                        <label htmlFor="position" className="block text-sm font-medium text-gray-700">
-                          Position/Status
-                        </label>
-                        <input
-                          type="text"
-                          id="position"
-                          value={newMember.position}
-                          onChange={(e) => setNewMember({ ...newMember, position: e.target.value })}
-                          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                          placeholder="e.g., Member, Life Member, Volunteer"
-                        />
-                      </div>
-
-                      <div className="md:col-span-2">
-                        <label htmlFor="address" className="block text-sm font-medium text-gray-700">
-                          Address
-                        </label>
-                        <textarea
-                          id="address"
-                          rows={2}
-                          value={newMember.address}
-                          onChange={(e) => setNewMember({ ...newMember, address: e.target.value })}
-                          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                          placeholder="Street address, city, postal code"
-                        />
-                      </div>
+                    <div>
+                      <input
+                        type="tel"
+                        placeholder="Phone Number"
+                        value={newMember.phoneNumber}
+                        onChange={(e) => setNewMember({ ...newMember, phoneNumber: e.target.value })}
+                        className="w-full px-3 py-2 text-sm rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                      />
                     </div>
 
                     <button
                       type="submit"
                       disabled={loading}
-                      className="bg-blue-600 text-white py-2 px-6 rounded-md hover:bg-blue-700 disabled:opacity-50"
+                      className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 disabled:opacity-50 text-sm"
                     >
                       {loading ? 'Adding...' : 'Add Member'}
                     </button>
@@ -1637,85 +1924,65 @@ const resendSetupEmail = async (memberEmail: string) => {
                 </div>
               )}
 
-              <div className="p-6 flex-1 overflow-hidden">
+              <div className="p-4 flex-1 overflow-hidden">
                 {filteredMembers.length === 0 ? (
                   <div className="text-center py-8">
                     {memberSearch ? (
-                      <p className="text-gray-500">No members found matching "{memberSearch}"</p>
+                      <p className="text-gray-500 text-sm">No members found matching "{memberSearch}"</p>
                     ) : (
-                      <p className="text-gray-500">No members yet. Add your first team member!</p>
+                      <p className="text-gray-500 text-sm">No members yet.</p>
                     )}
                   </div>
                 ) : (
-                  <div className="h-full overflow-y-auto space-y-4 pr-2">
+                  <div className="h-full overflow-y-auto space-y-3 pr-2">
                     {filteredMembers.map((member) => (
-                      <div key={member.id} className="border rounded-lg p-4 hover:shadow-sm transition-shadow relative">
+                      <div key={member.id} className="border rounded-lg p-3 hover:shadow-sm transition-shadow relative">
                           <button
                             onClick={() => setDeletingMember(member)}
-                            className="absolute top-2 right-2 text-gray-400 hover:text-red-500 text-lg font-bold w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-100"
+                            className="absolute top-2 right-2 text-gray-400 hover:text-red-500 text-lg font-bold w-5 h-5 flex items-center justify-center rounded-full hover:bg-gray-100"
                             title="Delete member"
                           >
                             ×
                           </button>
                           
                           <div className="flex justify-between items-start">
-                            <div className="flex-1 pr-8">
-                              <div className="mb-2">
+                            <div className="flex-1 pr-6">
+                              <div className="mb-1">
                                 <button
                                   onClick={() => setEditingMember(member)}
-                                  className="text-lg font-semibold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                                  className="text-sm font-semibold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
                                   title="Click to edit member"
                                 >
                                   {member.first_name} {member.last_name}
                                 </button>
                               </div>
                               
-                              <div className="grid grid-cols-1 gap-2 text-sm text-gray-600">
-                                <div>
-                                  {member.email}
-                                </div>
-                                <div>
-                                  {member.phone_number || '—'}
-                                </div>
+                              <div className="text-xs text-gray-600 mb-1">
+                                {member.email}
                               </div>
                               
-                              {member.address && (
-                                <div className="mt-2 text-sm text-gray-600">
-                                  {member.address}
-                                </div>
-                              )}
-                              
-                              <div className="mt-2 flex items-center gap-2">
-                                {member.position && (
-                                  <span className="text-xs text-gray-400">
-                                    {member.position}
-                                  </span>
-                                )}
-                                {member.position && (
-                                  <span className="text-xs text-gray-300">•</span>
-                                )}
-                                <span className="text-xs text-gray-400">
+                              <div className="flex items-center gap-2 text-xs">
+                                <span className="text-gray-400">
                                   {member.role === 'tenant_admin' ? 'admin' : 'member'}
                                 </span>
                                 
                                 {/* Resend Setup Email icon for admins */}
-{/* Resend Setup Email icon for admins */}
-{member.role === 'tenant_admin' && (
-  <>
-    <span className="text-xs text-gray-300">•</span>
-    <button
-      onClick={() => resendSetupEmail(member.email)}
-      title="Resend password setup link to this admin"
-      className="text-blue-600 hover:text-blue-800 cursor-pointer p-1 rounded hover:bg-blue-50 transition-colors"
-    >
-      <img 
-        src="/mail-key.png" 
-        alt="Resend setup" 
-        className="w-6 h-6"
-      />
-    </button>
-  </>
-)}
+                                {member.role === 'tenant_admin' && (
+                                  <>
+                                    <span className="text-gray-300">•</span>
+                                    <button
+                                      onClick={() => resendSetupEmail(member.email)}
+                                      title="Resend password setup link to this admin"
+                                      className="text-blue-600 hover:text-blue-800 cursor-pointer p-1 rounded hover:bg-blue-50 transition-colors"
+                                    >
+                                      <img 
+                                        src="/mail-key.png" 
+                                        alt="Resend setup" 
+                                        className="w-4 h-4"
+                                      />
+                                    </button>
+                                  </>
+                                )}
                               </div>
                             </div>
                           </div>
@@ -1727,6 +1994,157 @@ const resendSetupEmail = async (memberEmail: string) => {
             </div>
           </div>
 
+          {/* Group Management Modal */}
+          {managingGroupMembers && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-screen overflow-y-auto">
+                <div className="flex justify-between items-start mb-6">
+                  <div>
+                    <h3 className="text-lg font-semibold">Manage Group: {managingGroupMembers.name}</h3>
+                    <p className="text-gray-600 mt-1">{groupMemberships.length} members in this group</p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setManagingGroupMembers(null)
+                      setGroupMemberships([])
+                    }}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* Add Member to Group */}
+                <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+                  <h4 className="font-medium mb-3">Add Member to Group</h4>
+                  <div className="flex gap-2">
+                    <select
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          addMemberToGroup(managingGroupMembers.id, e.target.value)
+                          e.target.value = ''
+                        }
+                      }}
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">Select a member to add...</option>
+                      {members
+                        .filter(member => !groupMemberships.some(gm => gm.member_email === member.email))
+                        .sort((a, b) => `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`))
+                        .map((member) => (
+                          <option key={member.id} value={member.email}>
+                            {member.first_name} {member.last_name} ({member.email})
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Current Group Members */}
+                <div>
+                  <h4 className="font-medium mb-3">Current Members</h4>
+                  {groupMemberships.length === 0 ? (
+                    <p className="text-gray-500 text-center py-8">No members in this group yet.</p>
+                  ) : (
+                    <div className="space-y-2 max-h-96 overflow-y-auto">
+                      {groupMemberships.map((membership) => (
+                        <div key={membership.id} className="flex justify-between items-center p-3 border rounded-lg">
+                          <div className="flex-1">
+                            <div className="font-medium">{membership.member_email}</div>
+                            <div className="text-sm text-gray-500">
+                              Added: {new Date(membership.added_at).toLocaleDateString()}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => removeMemberFromGroup(membership.id, managingGroupMembers.id)}
+                            disabled={loading}
+                            className="text-red-600 hover:text-red-800 text-sm font-medium disabled:opacity-50"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Edit Group Modal */}
+          {editingGroup && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg p-6 w-full max-w-md">
+                <h3 className="text-lg font-semibold mb-4">Rename Group</h3>
+                
+                <form onSubmit={(e) => {
+                  e.preventDefault()
+                  const formData = new FormData(e.target as HTMLFormElement)
+                  updateGroup(formData.get('name') as string)
+                }} className="space-y-4">
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Group Name</label>
+                    <input
+                      type="text"
+                      name="name"
+                      defaultValue={editingGroup.name}
+                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                      required
+                    />
+                  </div>
+                  
+                  <div className="flex justify-end space-x-3">
+                    <button
+                      type="button"
+                      onClick={() => setEditingGroup(null)}
+                      className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {loading ? 'Saving...' : 'Save'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Delete Group Confirmation Modal */}
+          {deletingGroup && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg p-6 w-full max-w-md">
+                <h3 className="text-lg font-semibold mb-4">Delete Group</h3>
+                <p className="text-gray-600 mb-6">
+                  Are you sure you want to delete the group <strong>"{deletingGroup.name}"</strong>? 
+                  This will remove all member assignments to this group. This action cannot be undone.
+                </p>
+                
+                <div className="flex justify-end space-x-3">
+                  <button
+                    onClick={() => setDeletingGroup(null)}
+                    className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={deleteGroup}
+                    disabled={loading}
+                    className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
+                  >
+                    {loading ? 'Deleting...' : 'Delete Group'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* All other existing modals remain the same... */}
           {/* Signup Management Modal */}
           {managingOpportunity && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -2391,6 +2809,9 @@ const resendSetupEmail = async (memberEmail: string) => {
                       <span>{viewingPoll.poll_type === 'yes_no' ? 'Yes/No' : 'Multiple Choice'}</span>
                       {viewingPoll.is_anonymous && <span>Anonymous</span>}
                       <span>{pollResponses.length} total responses</span>
+                      <span>
+                        Target: {viewingPoll.target_all_members ? 'All Members' : `Groups: ${getGroupNames(viewingPoll.target_groups).join(', ')}`}
+                      </span>
                     </div>
                   </div>
                   <button
@@ -2600,35 +3021,6 @@ const resendSetupEmail = async (memberEmail: string) => {
                     </button>
                   </div>
                 </form>
-              </div>
-            </div>
-          )}
-
-          {/* Close Poll Confirmation Modal */}
-          {pollToClose && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-              <div className="bg-white rounded-lg p-6 w-full max-w-md">
-                <h3 className="text-lg font-semibold mb-4">Close Poll</h3>
-                <p className="text-gray-600 mb-6">
-                  Are you sure you want to close <strong>"{pollToClose.title}"</strong>? 
-                  This will remove it from the active polls list and stop accepting new responses.
-                </p>
-                
-                <div className="flex justify-end space-x-3">
-                  <button
-                    onClick={() => setPollToClose(null)}
-                    className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={closePoll}
-                    disabled={loading}
-                    className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
-                  >
-                    {loading ? 'Closing...' : 'Close Poll'}
-                  </button>
-                </div>
               </div>
             </div>
           )}
