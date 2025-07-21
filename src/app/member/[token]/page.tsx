@@ -1,4 +1,6 @@
-// src/app/member/[token]/page.tsx - v2.3 - Added Sign-Up Sheets functionality
+// File: src/app/member/[token]/page.tsx
+// Version: 3.0 - Added group targeting support and member group visibility
+
 'use client'
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
@@ -56,6 +58,7 @@ interface PollItem {
   member_response?: string
   response_counts: { [key: string]: number }
   total_responses: number
+  targeting_display?: string
 }
 
 interface RosterMember {
@@ -90,6 +93,12 @@ interface SignupSheet {
   }>
 }
 
+interface MemberGroup {
+  group_id: string
+  group_name: string
+  added_at: string
+}
+
 export default function MemberPortal({ params }: { params: { token: string } }) {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
@@ -104,6 +113,8 @@ export default function MemberPortal({ params }: { params: { token: string } }) 
   const [message, setMessage] = useState('')
   const [selectedPoll, setSelectedPoll] = useState<PollItem | null>(null)
   const [signupSheets, setSignupSheets] = useState<SignupSheet[]>([])
+  const [memberGroups, setMemberGroups] = useState<MemberGroup[]>([])
+  const [allGroups, setAllGroups] = useState<{id: string, name: string, member_count: number}[]>([])
 
   // Load member data based on token
   useEffect(() => {
@@ -184,6 +195,8 @@ export default function MemberPortal({ params }: { params: { token: string } }) 
 
       // Load all member data
       await Promise.all([
+        loadMemberGroups(token.tenant_id, token.member_email),
+        loadAllGroups(token.tenant_id),
         loadUpcomingOpportunities(token.tenant_id, token.member_email),
         loadHoursBreakdown(token.tenant_id, token.member_email),
         loadActivePolls(token.tenant_id, token.member_email),
@@ -198,17 +211,75 @@ export default function MemberPortal({ params }: { params: { token: string } }) 
     }
   }
 
+  const loadMemberGroups = async (tenantId: string, memberEmail: string) => {
+    try {
+      const { data: groups, error } = await supabase
+        .from('member_group_view')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .eq('member_email', memberEmail)
+        .order('group_name', { ascending: true })
+
+      if (error) {
+        console.error('Error loading member groups:', error)
+        return
+      }
+
+      setMemberGroups(groups || [])
+    } catch (error) {
+      console.error('Error loading member groups:', error)
+    }
+  }
+
+  const loadAllGroups = async (tenantId: string) => {
+    try {
+      const { data: groups, error } = await supabase
+        .from('group_member_counts')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .order('name', { ascending: true })
+
+      if (error) {
+        console.error('Error loading all groups:', error)
+        return
+      }
+
+      setAllGroups(groups || [])
+    } catch (error) {
+      console.error('Error loading all groups:', error)
+    }
+  }
+
   const loadUpcomingOpportunities = async (tenantId: string, memberEmail: string) => {
     try {
-      // Get upcoming opportunities with project info and signup status
+      // Get opportunities from projects that this member should see
+      const { data: visibleProjects, error: projectsError } = await supabase
+        .from('member_visible_projects')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('member_email', memberEmail)
+
+      if (projectsError) {
+        console.error('Error loading visible projects:', projectsError)
+        return
+      }
+
+      const visibleProjectIds = visibleProjects?.map(p => p.id) || []
+
+      if (visibleProjectIds.length === 0) {
+        setUpcomingOpportunities([])
+        return
+      }
+
+      // Get upcoming opportunities from visible projects
       const { data: opportunities, error } = await supabase
         .from('opportunities')
         .select(`
           *,
-          projects!inner(name),
-          signups!left(member_email, status)
+          projects!inner(name)
         `)
         .eq('tenant_id', tenantId)
+        .in('project_id', visibleProjectIds)
         .gte('date_scheduled', new Date().toISOString().split('T')[0])
         .order('date_scheduled', { ascending: true })
         .order('time_start', { ascending: true })
@@ -220,7 +291,7 @@ export default function MemberPortal({ params }: { params: { token: string } }) 
 
       // Process opportunities with signup counts and member status
       const processedOpportunities = await Promise.all(
-        opportunities.map(async (opp) => {
+        (opportunities || []).map(async (opp) => {
           // Count confirmed signups
           const { count: filledCount } = await supabase
             .from('signups')
@@ -276,7 +347,7 @@ export default function MemberPortal({ params }: { params: { token: string } }) 
 
       if (!memberProfile) return
 
-      // Get hours from completed signups
+      // Get hours from completed signups (ALL projects - earned hours are permanent)
       const { data: signupHours } = await supabase
         .from('signups')
         .select(`
@@ -287,7 +358,7 @@ export default function MemberPortal({ params }: { params: { token: string } }) 
         .eq('status', 'confirmed')
         .lte('opportunities.date_scheduled', new Date().toISOString().split('T')[0])
 
-      // Get additional hours
+      // Get additional hours (ALL projects - earned hours are permanent)
       const { data: additionalHours } = await supabase
         .from('additional_hours')
         .select(`
@@ -353,7 +424,7 @@ export default function MemberPortal({ params }: { params: { token: string } }) 
 
   const loadActivePolls = async (tenantId: string, memberEmail: string) => {
     try {
-      // Get active polls
+      // Get all active polls
       const { data: polls, error } = await supabase
         .from('polls')
         .select('*')
@@ -366,9 +437,26 @@ export default function MemberPortal({ params }: { params: { token: string } }) 
         return
       }
 
-      // Check member responses and get response counts for each poll
+      // Get member's group IDs
+      const memberGroupIds = memberGroups.map(g => g.group_id)
+
+      // Filter polls based on targeting
+      const relevantPolls = polls?.filter(poll => {
+        if (poll.target_all_members) {
+          return true // Member should see this poll
+        }
+        
+        if (poll.target_groups && poll.target_groups.length > 0) {
+          // Check if member is in any of the target groups
+          return poll.target_groups.some((groupId: string) => memberGroupIds.includes(groupId))
+        }
+        
+        return false // Poll has no targeting or member not in target groups
+      }) || []
+
+      // Check member responses and get response counts for each relevant poll
       const pollsWithResponses = await Promise.all(
-        polls.map(async (poll) => {
+        relevantPolls.map(async (poll) => {
           // Check if member has responded
           const { data: response } = await supabase
             .from('poll_responses')
@@ -408,6 +496,18 @@ export default function MemberPortal({ params }: { params: { token: string } }) 
             })
           }
 
+          // Generate targeting display
+          let targetingDisplay = ''
+          if (poll.target_all_members) {
+            targetingDisplay = 'All Members'
+          } else if (poll.target_groups && poll.target_groups.length > 0) {
+            const targetGroupNames = allGroups
+              .filter(g => poll.target_groups!.includes(g.id))
+              .map(g => g.name)
+              .join(', ')
+            targetingDisplay = `Groups: ${targetGroupNames}`
+          }
+
           return {
             id: poll.id,
             title: poll.title,
@@ -418,7 +518,8 @@ export default function MemberPortal({ params }: { params: { token: string } }) 
             has_responded: !!response,
             member_response: response?.response,
             response_counts: responseCounts,
-            total_responses: totalResponses
+            total_responses: totalResponses,
+            targeting_display: targetingDisplay
           }
         })
       )
@@ -456,7 +557,21 @@ export default function MemberPortal({ params }: { params: { token: string } }) 
 
   const loadSignupSheets = async (tenantId: string) => {
     try {
-      // Get current and future opportunities with their project information
+      // Get member's visible projects
+      const { data: visibleProjects } = await supabase
+        .from('member_visible_projects')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('member_email', memberInfo!.email)
+
+      const visibleProjectIds = visibleProjects?.map(p => p.id) || []
+
+      if (visibleProjectIds.length === 0) {
+        setSignupSheets([])
+        return
+      }
+
+      // Get current and future opportunities from visible projects only
       const { data: opportunities, error: opportunitiesError } = await supabase
         .from('opportunities')
         .select(`
@@ -471,6 +586,7 @@ export default function MemberPortal({ params }: { params: { token: string } }) 
           projects!inner(name)
         `)
         .eq('tenant_id', tenantId)
+        .in('project_id', visibleProjectIds)
         .gte('date_scheduled', new Date().toISOString().split('T')[0])
         .order('date_scheduled', { ascending: true })
 
@@ -718,14 +834,67 @@ export default function MemberPortal({ params }: { params: { token: string } }) 
         )}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {/* My Groups */}
+          <div className="bg-white rounded-lg shadow">
+            <div className="px-6 py-4 border-b">
+              <h2 className="text-xl font-semibold">My Groups</h2>
+            </div>
+            <div className="p-6">
+              {allGroups.length === 0 ? (
+                <p className="text-gray-500 text-center py-8">No groups have been created yet.</p>
+              ) : (
+                <div className="space-y-3">
+                  {allGroups.map((group: {id: string, name: string, member_count: number}) => {
+                    const isMember = memberGroups.some((mg: MemberGroup) => mg.group_id === group.id)
+                    return (
+                      <div key={group.id} className={`border rounded-lg p-3 ${isMember ? 'bg-blue-50 border-blue-200' : 'bg-gray-50 border-gray-200'}`}>
+                        <div className="flex justify-between items-center">
+                          <div className="flex-1">
+                            <h3 className={`font-medium ${isMember ? 'text-blue-900' : 'text-gray-600'}`}>
+                              {group.name}
+                            </h3>
+                            <p className={`text-sm ${isMember ? 'text-blue-700' : 'text-gray-500'}`}>
+                              {group.member_count} member{group.member_count !== 1 ? 's' : ''}
+                            </p>
+                          </div>
+                          <div className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            isMember 
+                              ? 'bg-blue-100 text-blue-800' 
+                              : 'bg-gray-100 text-gray-600'
+                          }`}>
+                            {isMember ? '✓ Member' : 'Not a member'}
+                          </div>
+                        </div>
+                        {isMember && (
+                          <div className="mt-2 text-xs text-blue-600">
+                            Added: {new Date(memberGroups.find(mg => mg.group_id === group.id)!.added_at).toLocaleDateString()}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+              
+              {memberGroups.length > 0 && (
+                <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+                  <p className="text-sm text-blue-700">
+                    <strong>Why groups matter:</strong> You receive emails and see opportunities from projects that target "All Members" or any groups you belong to.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* Upcoming Opportunities */}
           <div className="bg-white rounded-lg shadow">
             <div className="px-6 py-4 border-b">
-              <h2 className="text-xl font-semibold">Upcoming Sign-up Sheets</h2>
+              <h2 className="text-xl font-semibold">My Sign-up Sheets</h2>
+              <p className="text-sm text-gray-600 mt-1">Showing opportunities from projects you can access</p>
             </div>
             <div className="p-6">
               {upcomingOpportunities.length === 0 ? (
-                <p className="text-gray-500 text-center py-8">No upcoming Sign-ups available.</p>
+                <p className="text-gray-500 text-center py-8">No upcoming Sign-ups available for your groups.</p>
               ) : (
                 <div className="space-y-4">
                   {upcomingOpportunities.map((opportunity) => (
@@ -792,6 +961,7 @@ export default function MemberPortal({ params }: { params: { token: string } }) 
           <div className="bg-white rounded-lg shadow">
             <div className="px-6 py-4 border-b">
               <h2 className="text-xl font-semibold">Your Volunteer Hours</h2>
+              <p className="text-sm text-gray-600 mt-1">All hours earned throughout your volunteer history</p>
             </div>
             <div className="p-6">
               {hoursBreakdown ? (
@@ -852,11 +1022,12 @@ export default function MemberPortal({ params }: { params: { token: string } }) 
           {/* Active Polls */}
           <div className="bg-white rounded-lg shadow">
             <div className="px-6 py-4 border-b">
-              <h2 className="text-xl font-semibold">Active Polls</h2>
+              <h2 className="text-xl font-semibold">My Polls</h2>
+              <p className="text-sm text-gray-600 mt-1">Polls targeted to you or your groups</p>
             </div>
             <div className="p-6">
               {activePolls.length === 0 ? (
-                <p className="text-gray-500 text-center py-8">No active polls at this time.</p>
+                <p className="text-gray-500 text-center py-8">No active polls for your groups at this time.</p>
               ) : (
                 <div className="space-y-4">
                   {activePolls.map((poll) => (
@@ -865,6 +1036,9 @@ export default function MemberPortal({ params }: { params: { token: string } }) 
                         <div className="flex-1">
                           <h3 className="font-semibold">{poll.title}</h3>
                           <p className="text-gray-600 text-sm mt-1">{poll.question}</p>
+                          {poll.targeting_display && (
+                            <p className="text-xs text-blue-600 mt-1">📧 {poll.targeting_display}</p>
+                          )}
                         </div>
                         {poll.has_responded ? (
                           <span className="bg-green-100 text-green-800 text-sm font-medium px-2 py-1 rounded">
@@ -1025,7 +1199,10 @@ export default function MemberPortal({ params }: { params: { token: string } }) 
           {/* Sign-Up Sheets */}
           <div className="bg-white rounded-lg shadow lg:col-span-2">
             <div className="px-6 py-4 border-b flex justify-between items-center">
-              <h2 className="text-xl font-semibold">Current & Upcoming Sign-Up Sheets</h2>
+              <div>
+                <h2 className="text-xl font-semibold">Current & Upcoming Sign-Up Sheets</h2>
+                <p className="text-sm text-gray-600 mt-1">From projects you have access to</p>
+              </div>
               <button
                 onClick={() => loadSignupSheets(tenantInfo.id)}
                 className="text-blue-600 hover:text-blue-700 text-sm font-medium"
@@ -1035,7 +1212,7 @@ export default function MemberPortal({ params }: { params: { token: string } }) 
             </div>
             <div className="p-6">
               {signupSheets.length === 0 ? (
-                <p className="text-gray-500 text-center py-8">Click "Load Sign-Up Sheets" to view current and upcoming volunteer rosters.</p>
+                <p className="text-gray-500 text-center py-8">Click "Load Sign-Up Sheets" to view current and upcoming volunteer rosters from your accessible projects.</p>
               ) : (
                 <div className="space-y-6">
                   {signupSheets.map((sheet) => (
