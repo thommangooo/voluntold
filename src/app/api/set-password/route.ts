@@ -1,5 +1,5 @@
 // File: src/app/api/set-password/route.ts
-// Version: v2 - Set new password for admin users with debug logging
+// Version: v3 - Set new password for admin users (fixed email conflict)
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '../../../lib/supabase'
@@ -72,23 +72,59 @@ export async function POST(request: NextRequest) {
       }, { status: 400 })
     }
 
-    // First, try to get existing auth user
-    let authUserId = userProfile.id
+    console.log('🔍 Looking for auth user with email:', tokenData.user_email)
 
-    console.log('🔍 Checking for existing auth user with ID:', authUserId)
+    // First, check if auth user exists by email (not by ID)
+    const { data: existingUsers, error: listError } = await supabaseAdmin.auth.admin.listUsers()
+    
+    if (listError) {
+      console.error('❌ Error listing users:', listError)
+      return NextResponse.json({ 
+        error: 'Failed to check existing users' 
+      }, { status: 500 })
+    }
 
-    // Check if auth user already exists
-    const { data: existingAuthUser, error: getUserError } = await supabaseAdmin.auth.admin.getUserById(authUserId)
+    const existingAuthUser = existingUsers.users.find(user => user.email === tokenData.user_email)
 
-    console.log('🔍 Get user result:', { user: existingAuthUser.user?.id, error: getUserError })
-
-    if (!existingAuthUser.user) {
-      console.log('🆕 Creating new auth user for:', tokenData.user_email)
-      console.log('🆕 Using ID:', authUserId)
+    if (existingAuthUser) {
+      console.log('🔄 Found existing auth user, updating password for:', existingAuthUser.email)
+      console.log('🔄 Auth user ID:', existingAuthUser.id)
+      console.log('🔄 Profile user ID:', userProfile.id)
       
-      // Create new auth user if doesn't exist (for new admin setup)
+      // Update existing auth user password
+      const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
+        existingAuthUser.id,
+        { password: password }
+      )
+
+      console.log('🔄 Update password result:', { error: updateError })
+
+      if (updateError) {
+        console.error('❌ Error updating password:', updateError)
+        return NextResponse.json({ 
+          error: 'Failed to update password. Please try again.' 
+        }, { status: 500 })
+      }
+
+      // If the auth user ID doesn't match the profile ID, update the profile
+      if (existingAuthUser.id !== userProfile.id) {
+        console.log('🔄 Syncing profile ID with auth user ID')
+        const { error: updateProfileError } = await supabase
+          .from('user_profiles')
+          .update({ id: existingAuthUser.id })
+          .eq('email', tokenData.user_email)
+
+        if (updateProfileError) {
+          console.error('❌ Error syncing profile ID:', updateProfileError)
+          // Don't fail the request, just log the error
+        }
+      }
+
+    } else {
+      console.log('🆕 No existing auth user found, creating new one for:', tokenData.user_email)
+      
+      // Create new auth user (for new admin setup)
       const { data: newAuthUser, error: createError } = await supabaseAdmin.auth.admin.createUser({
-        id: authUserId,
         email: tokenData.user_email,
         password: password,
         email_confirm: true, // Skip email confirmation since admin is setting up
@@ -111,23 +147,16 @@ export async function POST(request: NextRequest) {
         }, { status: 500 })
       }
 
-      authUserId = newAuthUser.user!.id
-    } else {
-      console.log('🔄 Updating existing auth user password for:', existingAuthUser.user.email)
-      
-      // Update existing auth user password
-      const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
-        authUserId,
-        { password: password }
-      )
+      // Update the profile with the new auth user ID
+      console.log('🔄 Updating profile with new auth user ID:', newAuthUser.user!.id)
+      const { error: updateProfileError } = await supabase
+        .from('user_profiles')
+        .update({ id: newAuthUser.user!.id })
+        .eq('email', tokenData.user_email)
 
-      console.log('🔄 Update password result:', { error: updateError })
-
-      if (updateError) {
-        console.error('❌ Error updating password:', updateError)
-        return NextResponse.json({ 
-          error: 'Failed to update password. Please try again.' 
-        }, { status: 500 })
+      if (updateProfileError) {
+        console.error('❌ Error updating profile ID:', updateProfileError)
+        // Don't fail the request, just log the error
       }
     }
 
